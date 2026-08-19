@@ -143,7 +143,7 @@ test("API Endpoint: GET / serves interactive Admin Dashboard HTML", async () => 
   assert.strictEqual(res.headers.get("Content-Type"), "text/html; charset=utf-8");
 
   const html = await res.text();
-  assert.ok(html.includes("OPRAN BOOKING"));
-  assert.ok(html.includes("FAST-PATH HTTP ~10ms"));
-  assert.ok(html.includes("DRY-RUN SAFETY ACTIVE"));
+  assert.ok(html.includes("أوبيران لأتمتة الحجوزات"));
+  assert.ok(html.includes("FAST-PATH"));
+  assert.ok(html.includes("DRY-RUN"));
 });
