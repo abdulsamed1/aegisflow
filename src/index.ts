@@ -370,254 +370,320 @@ export default {
 
 function getAdminHTML(isDryRun: boolean): string {
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OPRAN BOOKING — Admin Dashboard</title>
+  <title>نظام أوبيران لأتمتة الحجوزات — لوحة التحكم</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg-dark: #0b0f19;
-      --bg-card: rgba(22, 30, 46, 0.7);
-      --border-glass: rgba(255, 255, 255, 0.08);
-      --primary: #3b82f6;
-      --primary-hover: #2563eb;
+      --bg-surface: #0a0d14;
+      --bg-card: #121722;
+      --bg-card-hover: #171e2c;
+      --border: rgba(255, 255, 255, 0.07);
+      --border-accent: rgba(59, 130, 246, 0.3);
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
       --success: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.12);
       --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.12);
       --danger: #ef4444;
+      --danger-bg: rgba(239, 68, 68, 0.12);
       --text: #f3f4f6;
       --text-muted: #9ca3af;
+      --text-dim: #6b7280;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: var(--bg-dark);
+      background: var(--bg-surface);
       color: var(--text);
-      font-family: 'Inter', sans-serif;
+      font-family: 'Cairo', system-ui, -apple-system, sans-serif;
       min-height: 100vh;
       padding: 24px;
+      line-height: 1.5;
     }
+    .container { max-width: 1200px; margin: 0 auto; }
     .header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 16px 24px;
+      padding: 20px 24px;
       background: var(--bg-card);
-      backdrop-filter: blur(12px);
-      border: 1px solid var(--border-glass);
+      border: 1px solid var(--border);
       border-radius: 12px;
       margin-bottom: 24px;
     }
-    .title-group { display: flex; align-items: center; gap: 16px; }
-    .brand { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+    .brand-group { display: flex; align-items: center; gap: 16px; }
+    .brand-title { font-size: 20px; font-weight: 800; color: #fff; letter-spacing: -0.3px; }
     .badge-fastpath {
       background: rgba(16, 185, 129, 0.15);
       color: var(--success);
-      border: 1px solid rgba(16, 185, 129, 0.3);
+      border: 1px solid rgba(16, 185, 129, 0.25);
       padding: 4px 12px;
-      border-radius: 99px;
+      border-radius: 6px;
       font-size: 12px;
-      font-weight: 600;
+      font-weight: 700;
     }
     .badge-dryrun {
-      background: rgba(245, 158, 11, 0.15);
+      background: var(--warning-bg);
       color: var(--warning);
-      border: 1px solid rgba(245, 158, 11, 0.3);
+      border: 1px solid rgba(245, 158, 11, 0.25);
       padding: 4px 12px;
-      border-radius: 99px;
+      border-radius: 6px;
       font-size: 12px;
-      font-weight: 600;
+      font-weight: 700;
     }
     .btn {
       background: var(--primary);
       color: white;
       border: none;
-      padding: 10px 18px;
+      padding: 10px 20px;
       border-radius: 8px;
-      font-weight: 600;
+      font-weight: 700;
       cursor: pointer;
-      font-size: 13px;
-      transition: background 0.2s;
+      font-size: 14px;
+      font-family: inherit;
+      transition: all 0.15s ease;
     }
-    .btn:hover { background: var(--primary-hover); }
-    .btn-sm { padding: 4px 10px; font-size: 12px; }
-    .btn-danger { background: rgba(239, 68, 68, 0.2); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.3); }
-    .btn-danger:hover { background: var(--danger); color: white; }
-    .grid-stats {
+    .btn:hover { background: var(--primary-hover); transform: translateY(-1px); }
+    .btn-sm { padding: 6px 14px; font-size: 13px; }
+    .btn-secondary { background: rgba(255,255,255,0.06); color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover { background: rgba(255,255,255,0.12); }
+    .grid-metrics {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
       gap: 16px;
       margin-bottom: 24px;
     }
-    .card {
+    .metric-card {
       background: var(--bg-card);
-      border: 1px solid var(--border-glass);
+      border: 1px solid var(--border);
       border-radius: 12px;
       padding: 20px;
     }
-    .card-title { font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; font-weight: 600; }
-    .card-val { font-size: 26px; font-weight: 700; }
-    .table-container {
+    .metric-label { font-size: 13px; color: var(--text-muted); font-weight: 600; margin-bottom: 8px; }
+    .metric-val { font-size: 28px; font-weight: 800; color: #fff; }
+    .table-card {
       background: var(--bg-card);
-      border: 1px solid var(--border-glass);
+      border: 1px solid var(--border);
       border-radius: 12px;
       overflow: hidden;
       margin-bottom: 24px;
     }
-    table { width: 100%; border-collapse: collapse; text-align: left; }
-    th, td { padding: 16px 20px; border-bottom: 1px solid var(--border-glass); }
-    th { font-size: 12px; color: var(--text-muted); text-transform: uppercase; }
-    .pill {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 99px;
-      font-size: 12px;
-      font-weight: 600;
+    .table-header {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
-    .pill-active { background: rgba(16, 185, 129, 0.15); color: var(--success); }
-    .pill-paused { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
-    /* Modal Styles */
-    .modal-overlay {
+    .table-header h2 { font-size: 16px; font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; text-align: right; }
+    th, td { padding: 16px 24px; border-bottom: 1px solid var(--border); font-size: 14px; }
+    th { color: var(--text-muted); font-weight: 600; background: rgba(0,0,0,0.15); }
+    .mono { font-family: 'JetBrains Mono', monospace; direction: ltr; display: inline-block; }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .status-active { background: var(--success-bg); color: var(--success); }
+    .status-paused { background: var(--warning-bg); color: var(--warning); }
+    .modal-backdrop {
       display: none;
       position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.7);
-      backdrop-filter: blur(8px);
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      backdrop-filter: blur(6px);
       z-index: 100;
       align-items: center;
       justify-content: center;
+      padding: 16px;
     }
     .modal {
-      background: #111827;
-      border: 1px solid var(--border-glass);
+      background: #151b26;
+      border: 1px solid var(--border);
       border-radius: 16px;
       width: 100%;
-      max-width: 500px;
+      max-width: 520px;
       padding: 28px;
     }
+    .table-wrapper {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .modal-title { font-size: 18px; font-weight: 800; margin-bottom: 20px; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     .form-group { margin-bottom: 16px; }
-    .form-group label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 6px; }
+    .form-group label { display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; }
     .form-group input, .form-group select {
       width: 100%;
-      padding: 10px;
-      background: #1f2937;
-      border: 1px solid var(--border-glass);
+      padding: 10px 14px;
+      background: #0d1117;
+      border: 1px solid var(--border);
       border-radius: 8px;
-      color: white;
+      color: #fff;
       font-size: 14px;
+      font-family: inherit;
+      min-height: 44px;
+    }
+    .form-group input:focus, .form-group select:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+    @media (max-width: 768px) {
+      body { padding: 12px; }
+      .header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 14px;
+        padding: 16px;
+      }
+      .brand-group {
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .brand-title { font-size: 18px; }
+      .btn { width: 100%; text-align: center; min-height: 44px; }
+      .grid-metrics {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+      }
+      .metric-card { padding: 14px; }
+      .metric-label { font-size: 12px; }
+      .metric-val { font-size: 22px; }
+      table { min-width: 580px; }
+      th, td { padding: 12px 14px; font-size: 13px; }
+      .form-grid { grid-template-columns: 1fr; gap: 10px; }
+      .modal { padding: 20px; max-height: 92vh; overflow-y: auto; }
+    }
+    @media (max-width: 480px) {
+      .grid-metrics { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
-  <div class="header">
-    <div class="title-group">
-      <div class="brand">OPRAN BOOKING</div>
-      <div class="badge-fastpath">⚡ FAST-PATH HTTP ~10ms</div>
-      ${isDryRun ? '<div class="badge-dryrun">🛡️ DRY-RUN SAFETY ACTIVE</div>' : ''}
+  <div class="container">
+    <header class="header">
+      <div class="brand-group">
+        <div class="brand-title">أوبيران لأتمتة الحجوزات</div>
+        <div class="badge-fastpath">⚡ المحرك السريع FAST-PATH <10ms</div>
+        ${isDryRun ? '<div class="badge-dryrun">🛡️ وضع الاختبار التجريبي DRY-RUN</div>' : ''}
+      </div>
+      <button class="btn" onclick="openModal()">+ إضافة مرشح جديد</button>
+    </header>
+
+    <div class="grid-metrics">
+      <div class="metric-card">
+        <div class="metric-label">المرشحون النشطون</div>
+        <div class="metric-val" id="val-active">-- / 10</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">نافذة عمل القاهرة (السفارة)</div>
+        <div class="metric-val" id="val-cairo" style="font-size: 18px;">جاري الفحص...</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">فحوصات اليوم</div>
+        <div class="metric-val" id="val-checks">0</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">الحجوزات الناجحة</div>
+        <div class="metric-val" style="color: var(--success);" id="val-booked">0</div>
+      </div>
     </div>
-    <div>
-      <button class="btn" onclick="openModal()">+ Add Client Candidate</button>
+
+    <div class="table-card">
+      <div class="table-header">
+        <h2>قائمة مرشحي الحجز</h2>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>اسم المرشح</th>
+              <th>الفئة</th>
+              <th>جواز السفر (مشفّر)</th>
+              <th>حالة المهمة</th>
+              <th>الإجراءات</th>
+            </tr>
+          </thead>
+          <tbody id="client-rows">
+            <tr>
+              <td colspan="5" style="text-align: center; color: var(--text-muted);">جاري تحميل بيانات المرشحين...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 
-  <div class="grid-stats">
-    <div class="card">
-      <div class="card-title">Active Client Jobs</div>
-      <div class="card-val" id="val-active">-- / 10</div>
-    </div>
-    <div class="card">
-      <div class="card-title">Operating Window</div>
-      <div class="card-val" id="val-cairo" style="font-size: 18px;">Checking...</div>
-    </div>
-    <div class="card">
-      <div class="card-title">Checks Executed Today</div>
-      <div class="card-val" id="val-checks">0</div>
-    </div>
-    <div class="card">
-      <div class="card-title">Successful Bookings</div>
-      <div class="card-val" style="color: var(--success);" id="val-booked">0</div>
-    </div>
-  </div>
-
-  <div class="table-container">
-    <table>
-      <thead>
-        <tr>
-          <th>Candidate Name</th>
-          <th>Category</th>
-          <th>Masked Passport</th>
-          <th>Status</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody id="client-rows">
-        <tr>
-          <td colspan="5" style="text-align: center; color: var(--text-muted);">Loading candidates...</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <!-- Add Client Modal -->
-  <div class="modal-overlay" id="client-modal">
+  <!-- Modal -->
+  <div class="modal-backdrop" id="client-modal">
     <div class="modal">
-      <h2 style="margin-bottom: 20px; font-size: 18px;">Add New Client Candidate</h2>
+      <div class="modal-title">إضافة مرشح جديد للنظام</div>
       <form id="add-client-form">
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="form-grid">
           <div class="form-group">
-            <label>First Name</label>
-            <input type="text" id="firstName" required placeholder="Ahmed">
+            <label>الاسم الأول</label>
+            <input type="text" id="firstName" required placeholder="أحمد">
           </div>
           <div class="form-group">
-            <label>Last Name</label>
-            <input type="text" id="lastName" required placeholder="Hassan">
+            <label>اسم العائلة</label>
+            <input type="text" id="lastName" required placeholder="حسن">
           </div>
         </div>
         <div class="form-group">
-          <label>Category</label>
+          <label>فئة الحجز</label>
           <select id="category">
-            <option value="Bachelor">Bachelor (Bachelor Candidate)</option>
-            <option value="Master_PhD">Master / PhD / Scholarship</option>
+            <option value="Bachelor">بكالوريوس / تعليم جامعي</option>
+            <option value="Master_PhD">ماجستير / دكتوراه / منح دراسية</option>
           </select>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="form-grid">
           <div class="form-group">
-            <label>Passport Number</label>
-            <input type="text" id="passportNumber" required placeholder="A12345678">
+            <label>رقم جواز السفر</label>
+            <input type="text" id="passportNumber" required placeholder="A12345678" style="direction: ltr;">
           </div>
           <div class="form-group">
-            <label>Passport Expiry</label>
+            <label>تاريخ انتهاء الجواز</label>
             <input type="date" id="passportExpiry" required>
           </div>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="form-grid">
           <div class="form-group">
-            <label>Date of Birth</label>
+            <label>تاريخ الميلاد</label>
             <input type="date" id="dob" required>
           </div>
           <div class="form-group">
-            <label>Gender</label>
+            <label>النوع</label>
             <select id="gender">
-              <option value="Male">Male</option>
-              <option value="Female">Female</option>
+              <option value="Male">ذكر</option>
+              <option value="Female">أنثى</option>
             </select>
           </div>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="form-grid">
           <div class="form-group">
-            <label>Email</label>
-            <input type="email" id="email" required placeholder="client@domain.com">
+            <label>البريد الإلكتروني</label>
+            <input type="email" id="email" required placeholder="client@example.com" style="direction: ltr;">
           </div>
           <div class="form-group">
-            <label>Phone</label>
-            <input type="tel" id="phone" required placeholder="+201000000000">
+            <label>رقم الهاتف</label>
+            <input type="tel" id="phone" required placeholder="+201000000000" style="direction: ltr;">
           </div>
         </div>
-        <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px;">
-          <button type="button" class="btn btn-danger" onclick="closeModal()">Cancel</button>
-          <button type="submit" class="btn">Save & Create Job</button>
+        <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal()">إلغاء</button>
+          <button type="submit" class="btn">حفظ وإنشاء المهمة</button>
         </div>
       </form>
     </div>
@@ -660,7 +726,7 @@ function getAdminHTML(isDryRun: boolean): string {
         const res = await fetch('/api/status');
         const data = await res.json();
         document.getElementById('val-active').innerText = data.activeJobs + ' / 10';
-        document.getElementById('val-cairo').innerText = data.cairoTime.formattedCairoTime + (data.cairoTime.isWithinWindow ? ' (Open)' : ' (Closed)');
+        document.getElementById('val-cairo').innerText = data.cairoTime.formattedCairoTime + (data.cairoTime.isWithinWindow ? ' (مفتوح)' : ' (مغلق)');
         document.getElementById('val-checks').innerText = data.metricsToday.total_checks || 0;
         document.getElementById('val-booked').innerText = data.metricsToday.bookings_completed || 0;
 
@@ -669,20 +735,24 @@ function getAdminHTML(isDryRun: boolean): string {
         const tbody = document.getElementById('client-rows');
         
         if (clients.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No candidate clients added yet. Click "+ Add Client Candidate" above.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">لا يوجد مرشحون حالياً. انقر على "+ إضافة مرشح جديد" لإنشاء طلب.</td></tr>';
           return;
         }
 
         tbody.innerHTML = clients.map(c => \`
           <tr>
-            <td style="font-weight: 600;">\${c.firstName} \${c.lastName}</td>
-            <td>\${c.category}</td>
-            <td style="font-family: 'JetBrains Mono', monospace;">\${c.maskedPassport}</td>
-            <td><span class="pill \${c.jobEnabled ? 'pill-active' : 'pill-paused'}">\${c.status}</span></td>
+            <td style="font-weight: 700;">\${c.firstName} \${c.lastName}</td>
+            <td>\${c.category === 'Master_PhD' ? 'ماجستير / دكتوراه' : 'بكالوريوس'}</td>
+            <td><span class="mono">\${c.maskedPassport}</span></td>
+            <td>
+              <span class="status-pill \${c.jobEnabled ? 'status-active' : 'status-paused'}">
+                \${c.jobEnabled ? 'نشط ⚡' : 'متوقف ⏸'}
+              </span>
+            </td>
             <td>
               \${c.jobId ? \`
-                <button class="btn btn-sm" onclick="toggleJob('\${c.jobId}', '\${c.jobEnabled ? 'pause' : 'activate'}')">
-                  \${c.jobEnabled ? 'Pause' : 'Activate'}
+                <button class="btn btn-sm btn-secondary" onclick="toggleJob('\${c.jobId}', '\${c.jobEnabled ? 'pause' : 'activate'}')">
+                  \${c.jobEnabled ? 'إيقاف مؤقت' : 'تفعيل'}
                 </button>
               \` : ''}
             </td>
