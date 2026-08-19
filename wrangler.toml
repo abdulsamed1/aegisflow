@@ -1,0 +1,39 @@
+name = "opran-booking"
+main = "src/index.ts"
+compatibility_date = "2025-09-15"
+compatibility_flags = ["nodejs_compat"]
+
+[placement]
+mode = "smart"
+
+[vars]
+DRY_RUN = "true"
+ENVIRONMENT = "production"
+
+# Cloudflare D1 Database Binding
+[[d1_databases]]
+binding = "DB"
+database_name = "opran-booking-db"
+database_id = "opran-booking-d1-id"
+
+# Cloudflare Durable Objects Binding
+[[durable_objects.bindings]]
+name = "JOB_LOCK"
+class_name = "JobLockDO"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["JobLockDO"]
+
+# Cloudflare KV Namespace Binding (Session Storage)
+[[kv_namespaces]]
+binding = "SESSION_KV"
+id = "opran_booking_sessions"
+
+# Cloudflare Browser Run (Playwright) Binding
+[browser]
+binding = "MYBROWSER"
+
+# Cron Trigger (Runs every minute; Cairo time conversion handled in worker)
+[triggers]
+crons = ["* * * * *"]

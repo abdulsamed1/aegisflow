@@ -1,0 +1,22 @@
+{
+  "name": "opran-booking",
+  "version": "1.0.0",
+  "description": "BMEIA Austria Visa Appointment Automation Platform",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
+    "d1:init": "wrangler d1 execute opran-booking-db --file=db/schema.sql"
+  },
+  "dependencies": {
+    "@cloudflare/playwright": "^0.0.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240815.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4",
+    "wrangler": "^3.72.0"
+  }
+}
