@@ -1,48 +1,62 @@
 # QA Test Automation Summary — opran-booking
 
-> **Generated:** 2026-08-19  
+> **Generated:** 2026-08-19 (updated after G0-gating review)  
 > **Framework:** Node.js Native Test Runner + `tsx` (`node --import tsx --test`)  
-> **Status:** All 12 tests PASSING (100% pass rate)
+> **Status:** 15 tests PASSING, `tsc --noEmit` clean
 
 ---
 
-## 1. Generated & Verified Test Suites
+## 1. Test Suites (current, verified)
 
-### API & Admin Dashboard Contracts (`test/api.test.ts`)
-- [x] `GET /api/status` — Validates operational state, fast-path flag, dry-run mode, and Cairo time window.
-- [x] `POST /api/clients` — Validates client onboarding, AES-256-GCM encryption, and job creation in D1.
-- [x] `GET /` — Validates interactive Admin Dashboard HTML rendering and client management UI.
+### Booking Engine (`test/booking.test.ts`)
+- [x] Payload contains only G0-verified discovery fields (`Command=Next`, no fabricated booking fields).
+- [x] Batch parallel dispatch stays Dry-Run only.
+- [x] Live booking fails closed while the portal booking path is UNVERIFIED (no network submission, no fabricated reference).
 
-### System End-to-End Workflow (`test/e2e-workflow.test.ts`)
-- [x] `E2E Lifecycle` — Onboarding candidate, pre-serializing payload, triggering Fast-Path dry-run, and checking fallback triggers.
+### E2E Workflow (`test/e2e-workflow.test.ts`)
+- [x] Onboarding → Dry-Run execution halts before any submission.
+- [x] Live execution returns `Booking path UNVERIFIED` with zero network calls to the portal.
+- [x] Dashboard HTML serves without unverified latency claims.
 
-### Ultra Fast-Path Engine (`test/booking.test.ts`)
-- [x] `Pre-Serialization` — Verifies zero-allocation payload compilation (`buildPreSerializedPayload`).
-- [x] `Batch Parallel Fan-Out` — Verifies 10-candidate simultaneous dispatch in **< 5ms**.
+### Scheduler (`test/scheduler.test.ts`)
+- [x] Cairo time info returns weekday names for display (24/7 scanning — no window gate, per decision D5).
+- [x] Monday timestamp string matches BMEIA `M/d/yyyy h:mm:ss tt` format.
+- [x] Week-range scan respects the client's accepted date window (no scans past `end_date`).
 
-### Security & Crypto (`test/crypto.test.ts`)
-- [x] `AES-256-GCM` — Verifies PII encryption and decryption integrity.
-- [x] `Passport Masking` — Verifies safe PII display formatting (`A9****32`).
+### Crypto & Masking (`test/crypto.test.ts`)
+- [x] AES-256-GCM PII encrypt/decrypt round-trip.
+- [x] Passport masking (`A9****32`).
 
-### Scheduler & Operating Hours (`test/scheduler.test.ts`)
-- [x] `Cairo Operating Window` — Verifies scheduler enforcement (Sun–Thu 08:30–15:30 Cairo Time).
-- [x] `Monday BMEIA Format` — Verifies ASP.NET timestamp calculation (`M/D/YYYY`).
+### Backoff & Budget (`test/backoff.test.ts`)
+- [x] Exponential backoff delay calculation (2, 4, 8… cap 60 min).
+- [x] Circuit breaker trips at 540s (90% of 600s daily browser budget).
 
-### Resilience & Protection (`test/backoff.test.ts`)
-- [x] `Exponential Backoff` — Verifies delay calculation formula.
-- [x] `Circuit Breaker` — Verifies browser time budget protection (540s threshold).
+### API Contracts (`test/api.test.ts`)
+- [x] `GET /api/status` returns operational metrics (mock D1).
+- [x] `POST /api/clients` creates encrypted client + job (mock D1).
+- [x] `GET /` serves the Arabic admin dashboard (mock env).
 
 ---
 
-## 2. Test Execution Benchmark Summary
+## 2. Explicitly NOT covered yet (and why)
+
+| Area | Reason |
+|------|--------|
+| Live portal booking submission | Booking path UNVERIFIED — fail-closed by design until first-slot capture (G0 spec section 8) |
+| Real D1/KV/DO integration | Unit-level mock env only; integration tests with Miniflare (local) are the next step after schema migration runs |
+| Playwright form-fill against live slots | Requires an actual appearing slot; captured per `portal-automation-spec.md` section 8 plan |
+| Auth (Cloudflare Access) | Decision pending in PRD; dashboard currently unauthenticated — P0 action item |
+
+---
+
+## 3. Execution Benchmark (latest run)
 
 ```text
-ℹ tests 12
-ℹ suites 0
-ℹ pass 12
+ℹ tests 15
+ℹ pass 15
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 574.56ms
+ℹ duration_ms ~525ms
 ```

@@ -23,7 +23,7 @@ The platform allows a single operator to input candidate client details once. Du
 | **D2** | MVP Scale | Up to 10 active concurrent client jobs | Micro-operator scale fitting Cloudflare Free Tier |
 | **D3** | Cost Policy | $0 cost target on Cloudflare Free Tier ($5 Paid Workers fallback if needed) | Zero-cost initial deployment mandate |
 | **D4** | Notifications | Telegram Bot API for Operator alerts exclusively | Streamlined single-channel operational alerts |
-| **D5** | Operating Window | Saturday to Thursday, 07:00–16:00 Cairo Time (UTC handled in worker logic) | Embassy working hours & slot release windows |
+| **D5** | Scanning Schedule | 24/7 continuous scanning every minute (no fixed release schedule exists on the portal); Cairo time displayed for reference only | Operator decision 2026-08-19 |
 | **D6** | User Architecture | Single Operator admin account | Simplified MVP scope without multi-tenancy |
 
 ---
@@ -94,7 +94,7 @@ stateDiagram-v2
 
 ### FR-2: Structural Validation Engine
 - System shall validate client data against BMEIA requirements prior to allowing transition to `READY`.
-- Passport expiration must be valid for at least 6 months beyond the target appointment window.
+- `[ASSUMPTION — to confirm against the official requirements list]` Passport expiration must be valid for at least 6 months beyond the target appointment window.
 - Invalid data transitions the record to `VALIDATION_ERROR` with explicit error details displayed in UI.
 
 ### FR-3: Appointment Preference Rules
@@ -105,29 +105,36 @@ stateDiagram-v2
   - `preferred_days`: Allowed days of week (e.g., Monday, Wednesday).
   - `preferred_time_range`: Allowed time range (e.g., 08:00–12:00).
 
-### FR-4: Fair Scheduler Engine
-- Scheduler shall run via Cloudflare Worker Cron Trigger every 1 minute.
-- Operating Window Check: Executes only between Saturday 07:00 and Thursday 16:00 Cairo Time (UTC converted).
-- Fairness Algorithm: Selects `ACTIVE` jobs ordered strictly by **oldest `last_check` timestamp** (measuring outstanding backlog, NOT daily attempt counts).
+### FR-4: Fair Scheduler Engine (24/7)
+- Scheduler shall run via Cloudflare Worker Cron Trigger every 1 minute, **24/7** (D5: no fixed slot-release schedule exists).
+- Fairness Algorithm: Selects up to 3 `ACTIVE` jobs per tick ordered strictly by **oldest `last_check` timestamp** (measuring outstanding backlog, NOT daily attempt counts).
+- Week Range Scan: Each job's availability scan covers every Monday inside the client's `start_date`–`end_date` window (up to 52 weeks).
 - Backoff Policy: Jobs with `TEMPORARY_ERROR` or `BOOKING_FAILED` apply exponential backoff (2, 4, 8, 16, 32, max 60 minutes).
 
 ### FR-5: Single POST Discovery Scanner
-- Discovery scanner shall execute availability checks via direct HTTP `POST` to `https://appointment.bmeia.gv.at/HomeWeb/Scheduler`.
-- Payload parameters: `Language=en`, `Office=KAIRO`, `CalendarId=<ID>`, `PersonCount=1`, `Monday=<Week_Monday_Timestamp>`, `Command=Next`.
-- Response contract: Presence of `p.message-error` indicates no appointments. Absence indicates open slots (~10ms latency).
+- Discovery scanner shall execute availability checks via direct HTTP `POST` to `https://appointment.bmeia.gv.at/HomeWeb/Scheduler` (verified contract: `docs/portal-automation-spec.md` section 5).
+- Payload parameters (verified only): `Language=en`, `Office=KAIRO`, `CalendarId=<ID>`, `PersonCount=1`, `Monday=<Week_Monday>`, `Command=Next`.
+- Session handling: Worker must warm cookies via a GET redirect pass (`AspxAutoDetectCookieSupport=1` + `ASP.NET_SessionId`) and persist them in KV.
+- Measured latency: ~270ms average (first request ~770ms, steady state 116–216ms).
+- **3-state response contract**:
+  1. `p.message-error` / "no appointments available" → `NO_SLOTS`.
+  2. Scheduler page without the error and a non-empty week grid → `SLOTS`.
+  3. Anything else (non-200, unexpected structure) → `UNKNOWN` — **never** treated as a slot.
 
 ### FR-6: Distributed Locking & Double-Booking Prevention
 - Each client job shall be bound to a dedicated Cloudflare Durable Object instance acting as an atomic state lock.
 - Before executing a booking attempt (`BOOKING` state), the Worker must acquire the DO lock.
 - Once a job reaches `BOOKED` state, the DO lock permanently seals the job, preventing any further checks or duplicate bookings.
 
-### FR-7: Dual Booking Engine (Direct HTTP Fast-Path Primary + Playwright Fallback)
-- **Direct HTTP Fast-Path (Primary)**: System executes direct HTTP `POST` form submissions directly from Cloudflare Worker `fetch()`, achieving sub-50ms (~10ms–50ms) execution speed without browser overhead.
-- **Playwright Browser Fallback (Secondary)**: Utilizes `@cloudflare/playwright` on Cloudflare Browser Run if CAPTCHA or DOM layout shift is encountered.
-- **Dry-Run Safety**: Enforced globally via environment config `DRY_RUN=true`. Direct HTTP and Playwright engines evaluate payload parameters and halt prior to final `Submit` until payload parameters are verified against live slots.
+### FR-7: Booking Engine (G0-gated — fail closed)
+- **The portal booking path is UNVERIFIED** (`docs/portal-automation-spec.md` section 6). No booking endpoint, form fields, or selectors may be invented.
+- Live booking is **disabled by code**: any live attempt returns `Booking path UNVERIFIED` and performs no network submission. No booking reference is ever fabricated.
+- **Dry-Run Safety**: Enforced globally via environment config `DRY_RUN=true`. Dry-Run prepares the verified discovery payload and halts with an audit event `DRY_RUN_STOPPED`.
+- **Unlock condition**: first live slot capture per `portal-automation-spec.md` section 8 (documented grid structure, form fields, CAPTCHA location, confirmation format) + written operator legal decision (section 9).
 
 ### FR-8: Audit Logging & Metrics
-- All events (`CHECK_STARTED`, `NO_APPOINTMENT`, `SLOT_MATCHED`, `BOOKING_STARTED`, `DRY_RUN_STOPPED`, `BOOKED`, `ERROR`) shall be logged to D1 table `audit_logs`.
+- All events shall be logged to D1 table `audit_logs` with the canonical event set from the brief section 17:
+  `NO_APPOINTMENT, APPOINTMENT_FOUND, RULE_MISMATCH, UNKNOWN_RESPONSE, BOOKING_STARTED, DRY_RUN_STOPPED, SUBMITTED, BOOKED, BOOKING_FAILED, TEMPORARY_ERROR, PORTAL_ERROR, BUDGET_WARNING, NOTIFY_SENT`.
 - Logs shall include `job_id`, `client_id`, `event_type`, `duration_ms`, `error_code`, and ISO timestamp.
 
 ### FR-9: Operator Telegram Alerts
@@ -154,8 +161,8 @@ stateDiagram-v2
 - Launch Throttle: Minimum 20 seconds between browser launches.
 
 ### NFR-3: Performance & Latency
-- Availability check latency: < 500ms per request.
-- Booking execution (Slot detection → Submission): < 3.0 seconds total browser execution time.
+- Availability check latency: measured ~270ms average (first request ~770ms, steady state 116–216ms) — budget allows `< 500ms` per request.
+- Booking execution latency: **not measured** — the booking path is unverified; targets will be set after first slot capture (G0 section 8), not before.
 
 ---
 

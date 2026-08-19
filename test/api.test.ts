@@ -144,6 +144,7 @@ test("API Endpoint: GET / serves interactive Admin Dashboard HTML", async () => 
 
   const html = await res.text();
   assert.ok(html.includes("أوبيران لأتمتة الحجوزات"));
-  assert.ok(html.includes("FAST-PATH"));
+  assert.ok(html.includes("محرك الفحص السريع"));
   assert.ok(html.includes("DRY-RUN"));
+  assert.ok(!html.includes("<10ms"), "Dashboard must not advertise unverified latency claims");
 });

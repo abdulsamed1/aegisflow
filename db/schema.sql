@@ -1,4 +1,6 @@
--- Cloudflare D1 SQL Schema for opran-booking
+-- opran-booking D1 schema (single source: docs/architecture.md section 3)
+-- Note: clients table intentionally has NO status column; job status lives only in jobs
+-- (PRD section 4: dual status flags are prohibited).
 
 CREATE TABLE IF NOT EXISTS clients (
     id TEXT PRIMARY KEY,
@@ -13,7 +15,6 @@ CREATE TABLE IF NOT EXISTS clients (
     phone_enc TEXT NOT NULL,
     category TEXT CHECK (category IN ('Bachelor', 'Master_PhD')) NOT NULL,
     calendar_id INTEGER NOT NULL,
-    status TEXT CHECK (status IN ('DRAFT', 'VALIDATION_ERROR', 'READY')) DEFAULT 'DRAFT',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -21,15 +22,15 @@ CREATE TABLE IF NOT EXISTS clients (
 CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,
     client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
-    enabled INTEGER DEFAULT 0,
+    enabled INTEGER DEFAULT 0, -- 0 = Paused, 1 = Enabled
     status TEXT CHECK (status IN (
-        'DRAFT', 'VALIDATION_ERROR', 'READY', 'ACTIVE', 
-        'SEARCHING', 'BOOKING', 'BOOKED', 'BOOKING_FAILED', 
+        'DRAFT', 'VALIDATION_ERROR', 'READY', 'ACTIVE',
+        'SEARCHING', 'BOOKING', 'BOOKED', 'BOOKING_FAILED',
         'TEMPORARY_ERROR', 'PORTAL_ERROR', 'CANCELLED', 'EXPIRED'
     )) DEFAULT 'DRAFT',
     start_date TEXT NOT NULL,
     end_date TEXT NOT NULL,
-    allowed_days TEXT NOT NULL,
+    allowed_days TEXT NOT NULL, -- JSON Array: ["Monday", "Wednesday"]
     preferred_time_start TEXT DEFAULT '08:00',
     preferred_time_end TEXT DEFAULT '16:00',
     check_count INTEGER DEFAULT 0,
@@ -52,7 +53,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 
 CREATE TABLE IF NOT EXISTS daily_metrics (
-    date TEXT PRIMARY KEY,
+    date TEXT PRIMARY KEY, -- YYYY-MM-DD
     total_checks INTEGER DEFAULT 0,
     total_browser_seconds REAL DEFAULT 0.0,
     slots_found INTEGER DEFAULT 0,

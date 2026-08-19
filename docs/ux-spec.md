@@ -32,8 +32,8 @@
 ```
 
 ### 1.2 Typography & Visual Hierarchy
-- **Primary Font**: `Inter`, `-apple-system`, `BlinkMacSystemFont`, `sans-serif`.
-- **Monospace Font**: `JetBrains Mono`, `Fira Code`, `monospace` (used for IDs, Timestamps, Error Codes, JSON payload previews).
+- **Primary Font**: `Cairo` (Arabic-first with Latin support — matches the Arabic dashboard and the project's Cairo domain), fallback `system-ui`.
+- **Monospace Font**: `JetBrains Mono`, `monospace` (used for IDs, Timestamps, Error Codes, JSON payload previews).
 
 ---
 
@@ -55,18 +55,18 @@ The layout is a single-page application (SPA) comprising:
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│  OPRAN BOOKING  │  Cairo: 14:32:05 (In Window)  │  [🛡️ DRY-RUN ACTIVE]  │  [⚡ System: Operational] │
+│  OPRAN BOOKING  │  Cairo: 14:32:05 (24/7 Scanning)  │  [🛡️ DRY-RUN ACTIVE]  │  [⚡ System: Operational] │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐
 │ ACTIVE JOBS         │ │ CHECKS TODAY        │ │ BROWSER BUDGET      │ │ SUCCESSFUL BOOKINGS │
-│ 7 / 10 Active       │ │ 1,420 Checks        │ │ 210s / 540s (38%)   │ │ 2 Booked            │
+│ 7 / 10 Active       │ │ 1,420 Checks        │ │ 46s / 540s (9%)     │ │ 0 Booked            │
 └─────────────────────┘ └─────────────────────┘ └─────────────────────┘ └─────────────────────┘
 ```
 
 #### Metrics Cards Details:
 - **Active Jobs**: Current number of client jobs in `ACTIVE` state out of maximum limit (10).
-- **Checks Today**: Total availability checks executed during the current operating window.
-- **Browser Time Budget**: Gauge bar measuring cumulative Playwright browser seconds against the 540s (90%) safety limit. Turns Amber at 70%, Crimson at 90%.
+- **Checks Today**: Total availability checks executed in the last 24h (discovery POSTs — these do not consume browser budget).
+- **Browser Time Budget**: Gauge bar measuring cumulative Playwright browser seconds against the 540s (90%) safety limit. Turns Amber at 70%, Crimson at 90%. (Direct-HTTP discovery consumes ~0 browser seconds; Playwright fallback and first-slot capture are the main consumers.)
 - **Successful Bookings**: Total count of jobs transitioned to `BOOKED` state.
 
 ---
@@ -123,7 +123,9 @@ A structured form modal with instant client-side validation feedback.
 │ APPOINTMENT PREFERENCES                                              │
 │ Category:   [ Aufenthaltsbewilligung Student (nur Bachelor)  ▼ ]     │
 │ Start Date: [ 2026-09-01          ]  End Date:   [ 2026-10-31      ] │
+│ Time Range: [ 08:00 ] – [ 15:00 ] (Cairo time)                       │
 │ Allowed Days: [x] Mon [x] Tue [x] Wed [x] Thu [ ] Sat [ ] Sun        │
+│ (Friday closed by the portal)                                        │
 ├──────────────────────────────────────────────────────────────────────┤
 │                      [ Cancel ]   [ Save as Draft ]  [ Save & Validate ]│
 └──────────────────────────────────────────────────────────────────────┘
@@ -136,9 +138,9 @@ A structured form modal with instant client-side validation feedback.
 Continuous event feed showing real-time system activities.
 
 #### Log Entry Format:
-`[14:32:01] [CHECK_STARTED] Job #104 (Ahmed H.) -> Scanning Monday 2026-09-07 (272ms) -> NO_SLOT`  
-`[14:31:01] [SLOT_MATCHED] Job #102 (Sara M.) -> Matched 2026-09-14 09:30 -> DO Lock Acquired`  
-`[14:31:04] [DRY_RUN_STOPPED] Job #102 -> Form Filled -> Screenshot Saved -> Execution Halted`
+`[14:32:01] [NO_APPOINTMENT] Job #104 (Ahmed H.) -> Week 2026-09-07 (272ms)`  
+`[14:31:01] [APPOINTMENT_FOUND] Job #102 (Sara M.) -> Week 2026-09-14 -> DO Lock Acquired`  
+`[14:31:04] [DRY_RUN_STOPPED] Job #102 -> Payload Prepared -> Screenshot Saved -> Execution Halted`
 
 ---
 

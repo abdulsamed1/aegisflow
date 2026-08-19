@@ -37,7 +37,7 @@
 - **So that** malformed or expired candidate data does not waste availability scans.
 
 #### Acceptance Criteria:
-1. Passport expiry date must be valid for ≥ 6 months beyond the target appointment end date.
+1. Passport expiry rule applied per operator configuration. `[ASSUMPTION: the 6-month rule must be confirmed against the official requirements list before it becomes a hard gate]`
 2. Target appointment date range must be chronological (`start_date <= end_date`).
 3. Invalid data transitions record to `VALIDATION_ERROR` with human-readable error messages.
 
@@ -51,21 +51,22 @@
 - **So that** availability is scanned in under 300ms without loading heavy UI pages.
 
 #### Acceptance Criteria:
-1. POST request sent with required headers, cookies (`AspxAutoDetectCookieSupport=1`), and parameters (`Office=KAIRO`, `CalendarId`, `Monday`).
-2. HTML response parser detects `p.message-error` (no slots) vs open slot HTML structure.
-3. Total scan latency averages < 300ms per request.
+1. POST request sent with verified params (`Office=KAIRO`, `CalendarId`, `Monday`, `Command=Next`) and warmed session cookies (`AspxAutoDetectCookieSupport=1` + `ASP.NET_SessionId` persisted in KV).
+2. HTML response parser implements the 3-state G0 contract: `message-error` → NO_SLOTS; scheduler page with non-empty week grid → SLOTS; anything else → UNKNOWN (never a slot).
+3. Total scan latency averages < 500ms per request (measured baseline ~270ms).
 
 ---
 
-### Story 2.2: Cairo Time Operating Window & Fair Queue Scheduler
+### Story 2.2: 24/7 Fair Queue Scheduler (D5)
 - **As a** Scheduler,  
-- **I want to** run every minute during Embassy operating hours and pick active jobs by oldest `last_check` timestamp,  
-- **So that** checks are distributed fairly across active candidate jobs.
+- **I want to** run every minute around the clock and pick up to 3 active jobs by oldest `last_check` timestamp, scanning each job's accepted week range,  
+- **So that** any slot appearing at any time is captured and checks are distributed fairly.
 
 #### Acceptance Criteria:
-1. Worker Cron Trigger checks if current Cairo Time is within Saturday–Thursday 07:00–16:00.
-2. Scheduler queries D1 for enabled `ACTIVE` jobs ordered strictly by `last_check ASC`.
-3. Candidates with older checks are processed first, preventing backlog starvation.
+1. Cron Trigger executes 24/7 (no time-window gate; Cairo time used for display only).
+2. Scheduler queries D1 for enabled `ACTIVE` jobs ordered strictly by `last_check ASC`, processing up to 3 per tick.
+3. Each job's scan covers every Monday within its `start_date`–`end_date` window.
+4. Candidates with older checks are processed first, preventing backlog starvation.
 
 ---
 
@@ -105,15 +106,16 @@
 2. When `DRY_RUN=true` (default), browser takes a screenshot of the pre-submit review page and halts cleanly without clicking `Submit`.
 ---
 
-### Story 3.3: Direct HTTP Fast-Path Booking Engine (~10ms–50ms)
+### Story 3.3: First-Slot Capture Spike — Document the Real Booking Path (G0)
 - **As a** Booking Engine,  
-- **I want to** execute direct ASP.NET WebForms HTTP POST submissions directly from the Worker `fetch()` context,  
-- **So that** slot booking completes in sub-50ms without waiting for browser launch overhead.
+- **I want to** capture and document the portal's actual booking flow at the first appearing slot,  
+- **So that** the booking engine is built on evidence, not invented endpoints.
 
 #### Acceptance Criteria:
-1. Direct HTTP request builds `POST /HomeWeb/BookingSubmit` payload with candidate details and session state.
-2. Fast-Path execution completes in < 50ms total latency.
-3. Fallback to Playwright Browser Run is triggered automatically if CAPTCHA or structural DOM shift is detected.
+1. On first `APPOINTMENT_FOUND`, capture raw DOM + screenshot and trace the click path (per `portal-automation-spec.md` section 8), halting before any final submission.
+2. Record the real slot markup, form field names/types/validation, CAPTCHA location, and confirmation format into the spec.
+3. Booking engine remains fail-closed (`Booking path UNVERIFIED`) until this spike closes — no live submission, no fabricated reference.
+4. The dual-engine question (direct HTTP vs Playwright) is decided from the spike evidence and recorded in the spec.
 
 ---
 

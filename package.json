@@ -11,7 +11,7 @@
     "d1:init": "wrangler d1 execute opran-booking-db --file=db/schema.sql"
   },
   "dependencies": {
-    "@cloudflare/playwright": "^0.0.4"
+    "@cloudflare/playwright": "^1.3.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240815.0",

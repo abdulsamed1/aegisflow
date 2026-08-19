@@ -1,7 +1,9 @@
 /**
  * Durable Object Atomic Lock Actor
- * Conforms to Architectural Invariant AD-5
+ * Conforms to Architectural Invariant AD-5 + brief section 9 (crash-safe lease)
  */
+
+const LOCK_TTL_MS = 5 * 60 * 1000;
 
 export class JobLockDO {
   state: DurableObjectState;
@@ -24,10 +26,15 @@ export class JobLockDO {
 
       const isLocked = await this.state.storage.get<boolean>("locked");
       if (isLocked) {
-        return new Response(JSON.stringify({ acquired: false, reason: "Lock currently held by another task" }), {
-          status: 409,
-          headers: { "Content-Type": "application/json" }
-        });
+        const lockedAt = (await this.state.storage.get<number>("locked_at")) || 0;
+        const expired = Date.now() - lockedAt > LOCK_TTL_MS;
+        if (!expired) {
+          return new Response(JSON.stringify({ acquired: false, reason: "Lock currently held by another task" }), {
+            status: 409,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        // Stale lock from a crashed execution: take over
       }
 
       await this.state.storage.put("locked", true);
@@ -51,6 +58,7 @@ export class JobLockDO {
     if (url.pathname === "/seal") {
       await this.state.storage.put("sealed", true);
       await this.state.storage.delete("locked");
+      await this.state.storage.delete("locked_at");
       return new Response(JSON.stringify({ sealed: true }), {
         status: 200,
         headers: { "Content-Type": "application/json" }

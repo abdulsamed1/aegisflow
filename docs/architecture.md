@@ -32,7 +32,7 @@ flowchart TD
     Worker -->|Read/Write PII & Logs| D1
     Worker -->|Acquire Lock & Check State| DO
     Worker -->|Store / Restore Cookies| KV
-    Worker -->|POST Scanner ~10ms| BMEIA
+    Worker -->|POST Scanner ~270ms avg| BMEIA
     Worker -->|Launch Playwright Engine| BrowserRun
     BrowserRun -->|Automated Form Fill & Dry-Run| BMEIA
     Worker -->|Send Alert| TelegramAPI
@@ -51,9 +51,9 @@ flowchart TD
 | **AD-5** | Atomic Job Lock Actor | Every client job binds to a dedicated Durable Object (`JobLockDO`). Booking attempts require DO lock acquisition before browser launch. | Double-booking race conditions |
 | **AD-6** | Mandatory Dry-Run Safety | `DRY_RUN=true` environment flag stops Playwright execution prior to final form `Submit`. Requires operator verification to lift. | Accidental live bookings during testing |
 | **AD-7** | Outstanding Workload Scheduler | Queue prioritization orders active jobs strictly by `last_check ASC` (oldest outstanding check first). | Unfair starvation of older client jobs |
-| **AD-8** | Edge Origin Proximity Placement | Worker `placement = { mode = "smart" }` configured in `wrangler.toml` to colocate execution near BMEIA origin (Vienna/Frankfurt). | High cross-continental network latency RTT |
-| **AD-9** | Pre-Serialized Zero-Allocation Payloads | Client form payloads pre-serialized into memory buffers before slot detection. | Runtime string building & allocation latency |
-| **AD-10** | Concurrent Multi-Candidate Parallel Fan-Out | Concurrent slot submission executes via `Promise.all()` across pre-warmed HTTP persistent connections for all candidates simultaneously. | Sequential candidate submission delays |
+| **AD-8** | Edge Origin Proximity Placement | Worker `placement = { mode = "smart" }` configured in `wrangler.toml` to colocate execution near BMEIA origin (Vienna/Frankfurt). `[verify: smart placement availability on Workers Free plan before deploy]` | High cross-continental network latency RTT |
+| **AD-9** | Pre-Serialized Payloads — DEFERRED | Payload pre-serialization applies only to the verified discovery contract today. Any booking-payload optimization is deferred until the booking path is verified (G0 section 6). | Runtime string building & allocation latency |
+| **AD-10** | Concurrent Multi-Candidate Parallel Fan-Out — DEFERRED | Sequential oldest-first fairness (AD-7) is the live design; parallel fan-out is deferred until booking path verification and conflicts with the fair queue as designed. | Sequential candidate submission delays |
 
 ---
 
@@ -61,6 +61,7 @@ flowchart TD
 
 ```sql
 -- Client Candidate Table
+-- NOTE: no status column here — job status lives only in jobs (PRD section 4: dual status flags prohibited).
 CREATE TABLE IF NOT EXISTS clients (
     id TEXT PRIMARY KEY,
     first_name_enc TEXT NOT NULL,
@@ -74,7 +75,6 @@ CREATE TABLE IF NOT EXISTS clients (
     phone_enc TEXT NOT NULL,
     category TEXT CHECK (category IN ('Bachelor', 'Master_PhD')) NOT NULL,
     calendar_id INTEGER NOT NULL,
-    status TEXT CHECK (status IN ('DRAFT', 'VALIDATION_ERROR', 'READY')) DEFAULT 'DRAFT',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -143,52 +143,43 @@ sequenceDiagram
     participant D1 as D1 Database
     participant BMEIA as BMEIA Portal API
 
-    Cron->>Sched: Execute Scheduled Check
-    Sched->>Sched: Verify Operating Window (Sat-Thu 07:00-16:00 Cairo)
+    Cron->>Sched: Execute Scheduled Check (24/7)
+    Sched->>Sched: Scan jobs by oldest last_check (up to 3/tick)
     Sched->>D1: Fetch next job (enabled=1, status='ACTIVE', last_check ASC)
-    D1-->>Sched: Job Record (CalendarId, Target Weeks)
-    Sched->>BMEIA: POST /HomeWeb/Scheduler (Form Params)
-    BMEIA-->>Sched: HTML Response (~10ms)
-    alt Response contains 'p.message-error'
+    D1-->>Sched: Job Record (CalendarId, accepted week range)
+    Sched->>BMEIA: POST /HomeWeb/Scheduler (verified form params, per week)
+    BMEIA-->>Sched: HTML Response (measured ~120-770ms)
+    alt Response contains 'message-error'
         Sched->>D1: Update job (last_check = NOW(), check_count++)
         Sched->>D1: Insert audit log (NO_APPOINTMENT)
-    else Slot Detected!
+    else Grid content found
+        Sched->>D1: Insert audit log (APPOINTMENT_FOUND)
         Sched->>Sched: Transition Job to 'BOOKING' & Trigger Booking Flow
+    else Unexpected structure
+        Sched->>D1: Insert audit log (UNKNOWN_RESPONSE) — never treated as slot
     end
 ```
 
-### 4.2 Dual Booking Execution Flow (Fast-Path HTTP ~10ms vs Playwright Fallback)
+### 4.2 Booking Flow (PROPOSED — UNVERIFIED until first slot capture, G0 section 8)
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant Sched as Scheduler Engine
     participant DO as JobLockDO (Durable Object)
-    participant HTTP as Direct HTTP Engine (Fast-Path)
-    participant PW as Playwright (Fallback)
     participant BMEIA as BMEIA Portal
-    participant TG as Telegram Bot
 
     Sched->>DO: AcquireLock(job_id)
     alt Lock Denied / Already Booked
         DO-->>Sched: Lock Rejected
     else Lock Acquired
         DO-->>Sched: Lock Granted
-        alt Direct HTTP Fast-Path (~10ms–50ms)
-            Sched->>HTTP: Build Form Payload (__VIEWSTATE + PII)
-            HTTP->>BMEIA: Direct POST /HomeWeb/BookingSubmit
-            alt Success / Dry-Run (Fast-Path)
-                BMEIA-->>HTTP: 200 OK / Confirmation HTML (~10ms)
-                HTTP-->>Sched: Booking Executed via Fast-Path
-                Sched->>TG: Send Telegram Alert (Fast-Path ~10ms Success)
-            else CAPTCHA / Complex Form Required
-                HTTP-->>Sched: Fallback to Playwright Browser
-                Sched->>PW: Launch Playwright Session (~2000ms)
-                PW->>BMEIA: Complete Form & Render
-            end
-        end
+        Note over Sched,BMEIA: Booking path UNVERIFIED — engine fails closed.<br/>No live submission until G0 first-slot capture + operator legal decision.
+        Sched->>DO: ReleaseLock(job_id)
     end
 ```
+
+> The dual-engine decision (direct HTTP POST vs Playwright) will be made from first-slot capture evidence and recorded in `portal-automation-spec.md` section 6. Until then the implementation returns `Booking path UNVERIFIED` and performs no network submission.
             PW->>BMEIA: Click Submit Button
             BMEIA-->>PW: Confirmation Page & Ref ID
             PW->>DO: Set Permanent State 'BOOKED'
