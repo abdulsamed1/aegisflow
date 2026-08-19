@@ -1,7 +1,8 @@
 /**
- * Direct HTTP Fast-Path Booking Engine (<10ms)
- * Bypasses browser launch overhead to execute appointment bookings in sub-10ms
- * Conforms to Architectural Invariants AD-4, AD-8, AD-9, AD-10
+ * Booking Engine — G0-gated
+ * The portal booking path (slot selection, form fields, submit endpoint) is UNVERIFIED.
+ * Until the first live slot is captured (portal-automation-spec section 8), live booking
+ * is disabled and Dry-Run payload preparation is the only allowed operation.
  */
 
 export interface DecryptedClientData {
@@ -32,7 +33,8 @@ export interface HttpBookingResult {
 }
 
 /**
- * Pre-serialize ASP.NET WebForms payload (AD-9 Zero-Allocation Invariant)
+ * Pre-serialize the VERIFIED discovery payload only.
+ * Booking form fields and submit endpoint are UNVERIFIED (G0) and must not be invented.
  */
 export function buildPreSerializedPayload(client: DecryptedClientData, mondayDateString: string): string {
   const params = new URLSearchParams();
@@ -41,23 +43,14 @@ export function buildPreSerializedPayload(client: DecryptedClientData, mondayDat
   params.append("CalendarId", client.calendarId.toString());
   params.append("PersonCount", "1");
   params.append("Monday", mondayDateString);
-  params.append("Command", "Book");
-
-  params.append("FirstName", client.firstName);
-  params.append("LastName", client.lastName);
-  params.append("Gender", client.gender);
-  params.append("DateOfBirth", client.dob);
-  params.append("Nationality", client.nationality);
-  params.append("PassportNumber", client.passportNumber);
-  params.append("PassportExpiry", client.passportExpiry);
-  params.append("Email", client.email);
-  params.append("Phone", client.phone);
-
+  params.append("Command", "Next");
   return params.toString();
 }
 
 /**
- * Single Direct HTTP Fast-Path Booking (<10ms)
+ * Dry-Run: prepares the verified payload and halts before any submission.
+ * Live mode: disabled until the booking path is verified at first slot capture (G0).
+ * Never fabricates a booking reference.
  */
 export async function executeDirectHttpBooking(
   client: DecryptedClientData,
@@ -65,14 +58,12 @@ export async function executeDirectHttpBooking(
   isDryRun: boolean = true
 ): Promise<HttpBookingResult> {
   const startTime = Date.now();
-  const url = "https://appointment.bmeia.gv.at/HomeWeb/Scheduler";
 
-  // Use pre-serialized payload if available, or build immediately
   const body = client.preSerializedBody || buildPreSerializedPayload(client, mondayDateString);
 
   if (isDryRun) {
     const durationMs = Date.now() - startTime;
-    console.log(`[FAST-PATH DRY-RUN] Zero-allocation payload for client ${client.id} ready in ${durationMs}ms. Halted prior to POST.`);
+    console.log(`[DRY-RUN] Verified discovery payload for client ${client.id} ready in ${durationMs}ms. Halted prior to any submission.`);
     return {
       clientId: client.id,
       success: true,
@@ -83,87 +74,40 @@ export async function executeDirectHttpBooking(
     };
   }
 
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        "Cookie": "AspxAutoDetectCookieSupport=1",
-        "Connection": "keep-alive"
-      },
-      body
-    });
-
-    const durationMs = Date.now() - startTime;
-
-    if (!response.ok) {
-      return {
-        clientId: client.id,
-        success: false,
-        durationMs,
-        isDryRun: false,
-        requiresPlaywrightFallback: true,
-        errorMessage: `HTTP ${response.status} ${response.statusText}`
-      };
-    }
-
-    const html = await response.text();
-
-    if (html.includes("BotDetectCaptcha") || html.includes("captcha")) {
-      console.warn(`[FAST-PATH] CAPTCHA detected in HTTP response for ${client.id}. Triggering Playwright Fallback...`);
-      return {
-        clientId: client.id,
-        success: false,
-        durationMs,
-        isDryRun: false,
-        requiresPlaywrightFallback: true,
-        errorMessage: "CAPTCHA Challenge encountered"
-      };
-    }
-
-    const refMatch = html.match(/Reference:\s*([A-Z0-9-]+)/i) || html.match(/Ref:\s*([A-Z0-9-]+)/i);
-    const referenceId = refMatch ? refMatch[1] : `REF-${Date.now()}`;
-
-    return {
-      clientId: client.id,
-      success: true,
-      durationMs,
-      isDryRun: false,
-      referenceId,
-      requiresPlaywrightFallback: false,
-      responseLength: html.length
-    };
-  } catch (error: any) {
-    return {
-      clientId: client.id,
-      success: false,
-      durationMs: Date.now() - startTime,
-      isDryRun: false,
-      requiresPlaywrightFallback: true,
-      errorMessage: error.message || "Fast-Path HTTP Booking network error"
-    };
-  }
+  return {
+    clientId: client.id,
+    success: false,
+    durationMs: Date.now() - startTime,
+    isDryRun: false,
+    requiresPlaywrightFallback: true,
+    errorMessage: "Booking path UNVERIFIED (portal-automation-spec section 6): live booking disabled until first slot capture"
+  };
 }
 
 /**
- * Concurrent Multi-Candidate Parallel Fan-Out Submission (AD-10 Invariant)
- * Executes simultaneous POST submissions for all 10 candidates in parallel (<10ms dispatch)
+ * Batch dispatcher — Dry-Run only until G0 closes.
  */
 export async function executeBatchFastPathBookings(
   clients: DecryptedClientData[],
   mondayDateString: string,
   isDryRun: boolean = true
 ): Promise<HttpBookingResult[]> {
-  console.log(`⚡ [ULTRA FAST-PATH] Dispatching concurrent parallel bookings for ${clients.length} candidate clients...`);
-  
-  // Pre-serialize all payloads
+  if (!isDryRun) {
+    return clients.map((c) => ({
+      clientId: c.id,
+      success: false,
+      durationMs: 0,
+      isDryRun: false,
+      requiresPlaywrightFallback: true,
+      errorMessage: "Live batch booking disabled until G0 closes (portal-automation-spec section 8)"
+    }));
+  }
+
   const preppedClients = clients.map((c) => ({
     ...c,
     preSerializedBody: buildPreSerializedPayload(c, mondayDateString)
   }));
 
-  // Promise.all Parallel Dispatch
   return Promise.all(
     preppedClients.map((client) => executeDirectHttpBooking(client, mondayDateString, isDryRun))
   );

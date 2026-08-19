@@ -60,3 +60,23 @@ export function calculateMondayString(targetDate: Date = new Date()): string {
 
   return `${month}/${dateNum}/${year} 12:00:00 AM`;
 }
+
+export function listMondaysInRange(startISO: string, endISO: string, now: Date = new Date()): string[] {
+  const currentMonday = calculateMondayString(now).split(" ")[0]; // M/d/yyyy
+  const startParts = startISO.split("-").map(Number);
+  const endParts = endISO.split("-").map(Number);
+
+  const mondays: string[] = [];
+  let cursor = new Date(Math.max(now.getTime(), Date.UTC(startParts[0], startParts[1] - 1, startParts[2])));
+  const end = new Date(Date.UTC(endParts[0], endParts[1] - 1, endParts[2]));
+
+  while (cursor <= end && mondays.length < 52) {
+    const mondayStr = calculateMondayString(cursor);
+    const key = mondayStr.split(" ")[0];
+    if (!mondays.some((m) => m.startsWith(key))) {
+      mondays.push(mondayStr);
+    }
+    cursor = new Date(cursor.getTime() + 7 * 24 * 60 * 60 * 1000);
+  }
+  return mondays;
+}

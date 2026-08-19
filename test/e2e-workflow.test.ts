@@ -3,45 +3,47 @@ import assert from "node:assert";
 import worker from "../src/index";
 import { executeDirectHttpBooking, DecryptedClientData } from "../src/booking-http";
 
-test("E2E Workflow: Complete Lifecycle Onboarding to Fast-Path Execution", async () => {
-  // Step 1: Onboard candidate client via POST /api/clients
-  const clientData = {
-    firstName: "Youssef",
-    lastName: "Ibrahim",
-    category: "Bachelor",
-    passportNumber: "B12345678",
-    passportExpiry: "2032-01-01",
-    dob: "2000-08-10",
-    gender: "Male",
-    email: "youssef@example.com",
-    phone: "+201200000000"
-  };
-
+test("E2E Workflow: Complete Lifecycle Onboarding to Dry-Run Execution", async () => {
   const clientObj: DecryptedClientData = {
     id: "client_e2e_101",
-    firstName: clientData.firstName,
-    lastName: clientData.lastName,
-    gender: clientData.gender,
-    dob: clientData.dob,
+    firstName: "Youssef",
+    lastName: "Ibrahim",
+    gender: "Male",
+    dob: "2000-08-10",
     nationality: "Egyptian",
-    passportNumber: clientData.passportNumber,
-    passportExpiry: clientData.passportExpiry,
-    email: clientData.email,
-    phone: clientData.phone,
-    category: clientData.category,
+    passportNumber: "B12345678",
+    passportExpiry: "2032-01-01",
+    email: "youssef@example.com",
+    phone: "+201200000000",
+    category: "Bachelor",
     calendarId: 44281520
   };
 
-  // Step 2: Execute Direct HTTP Fast-Path Booking (<10ms Dry-Run)
+  // Dry-Run execution prepares the verified payload and halts before any submission
   const bookingResult = await executeDirectHttpBooking(clientObj, "10/5/2026", true);
 
-  assert.strictEqual(bookingResult.success, true, "Fast-Path execution must succeed");
+  assert.strictEqual(bookingResult.success, true, "Dry-Run execution must succeed");
   assert.strictEqual(bookingResult.isDryRun, true, "Must halt in Dry-Run mode");
-  assert.ok(bookingResult.durationMs < 15, `Duration ${bookingResult.durationMs}ms must be < 15ms`);
 
-  // Step 3: Verify simulated live booking execution (Dry-Run false with mock server structure)
+  // Live execution must fail closed (booking path UNVERIFIED) with no network call to the portal
   const liveResult = await executeDirectHttpBooking(clientObj, "10/5/2026", false);
-  // Expect fallback or failure on invalid URL in test env, but structure must match contract
-  assert.ok(typeof liveResult.durationMs === "number");
   assert.strictEqual(liveResult.isDryRun, false);
+  assert.strictEqual(liveResult.success, false, "Live booking must be disabled until G0 closes");
+  assert.strictEqual(liveResult.requiresPlaywrightFallback, true);
+});
+
+test("E2E Workflow: Dashboard HTML serves without fast-path latency hype", async () => {
+  const env = {
+    DB: {} as any,
+    JOB_LOCK: {} as any,
+    SESSION_KV: {} as any,
+    MYBROWSER: {} as any,
+    DRY_RUN: "true"
+  };
+  const req = new Request("https://opran-booking.local/");
+  const res = await worker.fetch(req, env, {} as any);
+  const html = await res.text();
+  assert.ok(html.includes("أوبيران لأتمتة الحجوزات"));
+  assert.ok(html.includes("DRY-RUN"));
+  assert.ok(!html.includes("<10ms"), "Dashboard must not advertise unverified latency claims");
 });

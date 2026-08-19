@@ -21,14 +21,13 @@ export async function executePlaywrightFallback(
       throw new Error("Cloudflare MYBROWSER binding not configured.");
     }
 
-    // Dynamic import for Node.js test environment compatibility
     const playwrightModule = await import("@cloudflare/playwright");
     const playwright = playwrightModule.default || playwrightModule;
 
     browser = await playwright.launch(browserBinding);
     const page = await browser.newPage();
 
-    await page.goto("https://appointment.bmeia.gv.at/", { waitUntil: "networkidle", timeout: 15000 });
+    await page.goto("https://appointment.bmeia.gv.at/", { waitUntil: "domcontentloaded", timeout: 30000 });
 
     const durationSeconds = (Date.now() - startTime) / 1000.0;
 
@@ -36,7 +35,7 @@ export async function executePlaywrightFallback(
       const screenshotBuffer = await page.screenshot({ type: "jpeg", quality: 60 });
       const screenshotBase64 = screenshotBuffer.toString("base64");
 
-      console.log(`[PLAYWRIGHT DRY-RUN] Form filled and captured in ${durationSeconds.toFixed(2)}s. Halted prior to submit.`);
+      console.log(`[PLAYWRIGHT DRY-RUN] Portal reached and captured in ${durationSeconds.toFixed(2)}s. Halted prior to submit.`);
 
       return {
         success: true,
@@ -46,10 +45,13 @@ export async function executePlaywrightFallback(
       };
     }
 
+    // Live booking is disabled until the booking path is verified at first slot capture (G0).
+    // Returning success here would be a silent no-op; fail loudly instead.
     return {
-      success: true,
+      success: false,
       durationSeconds,
-      isDryRun: false
+      isDryRun: false,
+      errorMessage: "Booking path UNVERIFIED (portal-automation-spec section 6): Playwright live booking disabled"
     };
   } catch (error: any) {
     return {

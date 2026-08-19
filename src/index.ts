@@ -1,5 +1,5 @@
 import { scanAvailability } from "./scanner";
-import { getCairoTimeInfo, calculateMondayString } from "./scheduler";
+import { getCairoTimeInfo, listMondaysInRange } from "./scheduler";
 import { sendTelegramNotification } from "./telegram";
 import { JobLockDO } from "./lock";
 import { encryptPII, decryptPII, maskPassport } from "./crypto";
@@ -18,6 +18,17 @@ export interface Env {
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
   PII_ENCRYPTION_KEY?: string;
+}
+
+function requireSecret(env: Env): string | null {
+  return env.PII_ENCRYPTION_KEY || null;
+}
+
+function secretErrorResponse(): Response {
+  return new Response(JSON.stringify({ error: "PII_ENCRYPTION_KEY not configured" }), {
+    status: 500,
+    headers: { "Content-Type": "application/json" }
+  });
 }
 
 export default {
@@ -66,7 +77,8 @@ export default {
 
       // API: List Clients
       if (path === "/api/clients" && request.method === "GET") {
-        const secret = env.PII_ENCRYPTION_KEY || "default-secret";
+        const secret = requireSecret(env);
+        if (!secret) return secretErrorResponse();
         const { results } = await env.DB.prepare(
           `SELECT clients.*, jobs.id as job_id, jobs.status as job_status, jobs.enabled as job_enabled
            FROM clients
@@ -103,7 +115,8 @@ export default {
       // API: Add Client
       if (path === "/api/clients" && request.method === "POST") {
         const body: any = await request.json();
-        const secret = env.PII_ENCRYPTION_KEY || "default-secret";
+        const secret = requireSecret(env);
+        if (!secret) return secretErrorResponse();
         const clientId = `client_${Date.now()}`;
 
         const firstNameEnc = await encryptPII(body.firstName, secret);
@@ -115,8 +128,8 @@ export default {
         const calendarId = body.category === "Master_PhD" ? 44279679 : 44281520;
 
         await env.DB.prepare(
-          `INSERT INTO clients (id, first_name_enc, last_name_enc, gender, dob, nationality, passport_number_enc, passport_expiry, email_enc, phone_enc, category, calendar_id, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'READY')`
+          `INSERT INTO clients (id, first_name_enc, last_name_enc, gender, dob, nationality, passport_number_enc, passport_expiry, email_enc, phone_enc, category, calendar_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
           .bind(
             clientId,
@@ -137,15 +150,17 @@ export default {
         // Auto-create matching Job record
         const jobId = `job_${Date.now()}`;
         await env.DB.prepare(
-          `INSERT INTO jobs (id, client_id, enabled, status, start_date, end_date, allowed_days)
-           VALUES (?, ?, 1, 'ACTIVE', ?, ?, ?)`
+          `INSERT INTO jobs (id, client_id, enabled, status, start_date, end_date, allowed_days, preferred_time_start, preferred_time_end)
+           VALUES (?, ?, 1, 'ACTIVE', ?, ?, ?, ?, ?)`
         )
           .bind(
             jobId,
             clientId,
             body.startDate || "2026-09-01",
             body.endDate || "2026-10-31",
-            JSON.stringify(body.allowedDays || ["Monday", "Tuesday", "Wednesday", "Thursday"])
+            JSON.stringify(body.allowedDays || ["Monday", "Tuesday", "Wednesday", "Thursday"]),
+            body.timeStart || "08:00",
+            body.timeEnd || "16:00"
           )
           .run();
 
@@ -195,11 +210,8 @@ export default {
   },
 
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    const cairo = getCairoTimeInfo();
-    if (!cairo.isWithinWindow) {
-      console.log(`Outside operating window (${cairo.formattedCairoTime}). Skipping scan.`);
-      return;
-    }
+    // Operator decision 2026-08-19: no fixed slot-release schedule exists on the portal,
+    // so scanning runs 24/7 and any appearing slot is captured at any time.
 
     // Circuit Breaker Check (NFR-2)
     const metricsToday = await env.DB.prepare(
@@ -207,7 +219,7 @@ export default {
     ).first<any>() || { total_browser_seconds: 0.0, budget_alert_sent: 0 };
 
     if (isCircuitBreakerTripped(metricsToday.total_browser_seconds || 0.0)) {
-      console.warn(`🚨 Circuit breaker tripped (Daily browser budget ${metricsToday.total_browser_seconds}s >= 540s). Execution halted.`);
+      console.warn(`Circuit breaker tripped (Daily browser budget ${metricsToday.total_browser_seconds}s >= 540s). Execution halted.`);
       if (!metricsToday.budget_alert_sent && env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
         await sendTelegramNotification(
           env.TELEGRAM_BOT_TOKEN,
@@ -221,8 +233,8 @@ export default {
       return;
     }
 
-    // Query next active job by oldest last_check timestamp (Fair Scheduler AD-7)
-    const job = await env.DB.prepare(
+    // Fair scheduler (AD-7): up to 3 oldest-outstanding jobs per tick
+    const { results: jobs } = await env.DB.prepare(
       `SELECT jobs.*, clients.*
        FROM jobs 
        JOIN clients ON jobs.client_id = clients.id
@@ -230,60 +242,88 @@ export default {
          AND jobs.status = 'ACTIVE' 
          AND (jobs.backoff_until IS NULL OR jobs.backoff_until <= CURRENT_TIMESTAMP)
        ORDER BY jobs.last_check ASC 
-       LIMIT 1`
-    ).first<any>();
+       LIMIT 3`
+    ).all<any>();
 
-    if (!job) {
-      console.log("No eligible active jobs found for scan cycle.");
+    if (!jobs || jobs.length === 0) {
       return;
     }
 
-    const mondayStr = calculateMondayString();
-    console.log(`Scanning availability for Job ${job.id} (Calendar: ${job.calendar_id}) on week ${mondayStr}...`);
+    for (const job of jobs) {
+      // Scan only weeks inside the client's accepted date range (rules window)
+      const mondays = listMondaysInRange(job.start_date, job.end_date);
+      if (mondays.length === 0) {
+        await env.DB.prepare(`UPDATE jobs SET status = 'EXPIRED' WHERE id = ?`).bind(job.id).run();
+        continue;
+      }
 
-    const result = await scanAvailability(job.calendar_id, mondayStr);
+      let slotMonday: string | null = null;
+      for (const mondayStr of mondays) {
+        const result = await scanAvailability(job.calendar_id, mondayStr, env.SESSION_KV);
 
-    // Update job check timestamp & increment total_checks metric
-    await env.DB.prepare(
-      `UPDATE jobs SET last_check = CURRENT_TIMESTAMP, check_count = check_count + 1 WHERE id = ?`
-    )
-      .bind(job.id)
-      .run();
+        await env.DB.prepare(
+          `UPDATE jobs SET last_check = CURRENT_TIMESTAMP, check_count = check_count + 1 WHERE id = ?`
+        )
+          .bind(job.id)
+          .run();
 
-    await env.DB.prepare(
-      `INSERT INTO daily_metrics (date, total_checks) VALUES (DATE('now'), 1)
-       ON CONFLICT(date) DO UPDATE SET total_checks = total_checks + 1`
-    ).run();
+        await env.DB.prepare(
+          `INSERT INTO daily_metrics (date, total_checks) VALUES (DATE('now'), 1)
+           ON CONFLICT(date) DO UPDATE SET total_checks = total_checks + 1`
+        ).run();
 
-    // Log check event
-    await env.DB.prepare(
-      `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
-       VALUES (?, ?, ?, ?, ?)`
-    )
-      .bind(
-        job.id,
-        job.client_id,
-        result.hasSlots ? "SLOT_MATCHED" : "NO_APPOINTMENT",
-        result.durationMs,
-        JSON.stringify({ responseLength: result.rawResponseLength, error: result.errorMessage })
-      )
-      .run();
+        const eventType = result.status === "SLOTS" ? "APPOINTMENT_FOUND" : result.status === "UNKNOWN" ? "UNKNOWN_RESPONSE" : "NO_APPOINTMENT";
 
-    if (result.hasSlots) {
-      console.log(`🔥 SLOT DETECTED for Job ${job.id}! Triggering Direct HTTP Fast-Path Booking Engine...`);
+        await env.DB.prepare(
+          `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
+           VALUES (?, ?, ?, ?, ?)`
+        )
+          .bind(
+            job.id,
+            job.client_id,
+            eventType,
+            result.durationMs,
+            JSON.stringify({ week: mondayStr, responseLength: result.rawResponseLength, error: result.errorMessage })
+          )
+          .run();
 
-      // Acquire Durable Object Lock (AD-5)
+        if (result.status === "SLOTS") {
+          slotMonday = mondayStr;
+          await env.DB.prepare(
+            `INSERT INTO daily_metrics (date, slots_found) VALUES (DATE('now'), 1)
+             ON CONFLICT(date) DO UPDATE SET slots_found = slots_found + 1`
+          ).run();
+          break;
+        }
+        if (result.status === "UNKNOWN") {
+          await env.DB.prepare(
+            `UPDATE jobs SET last_error_code = ? WHERE id = ?`
+          )
+            .bind(result.errorMessage || "UNKNOWN_RESPONSE", job.id)
+            .run();
+        }
+      }
+
+      if (!slotMonday) continue;
+
+      console.log(`Slot detected for Job ${job.id} on week ${slotMonday}. Acquiring DO lock...`);
+
       const doId = env.JOB_LOCK.idFromName(job.id);
       const doStub = env.JOB_LOCK.get(doId);
       const lockRes = await doStub.fetch("https://lock/acquire");
 
       if (!lockRes.ok) {
         console.warn(`DO Lock rejected for Job ${job.id}: Lock already held.`);
-        return;
+        continue;
       }
 
-      // Decrypt PII fields for HTTP Fast-Path execution
-      const secret = env.PII_ENCRYPTION_KEY || "default-secret";
+      const secret = requireSecret(env);
+      if (!secret) {
+        console.error("PII_ENCRYPTION_KEY not configured; releasing lock and aborting.");
+        await doStub.fetch("https://lock/release");
+        continue;
+      }
+
       const decryptedClient: DecryptedClientData = {
         id: job.client_id,
         firstName: await decryptPII(job.first_name_enc, secret),
@@ -301,11 +341,10 @@ export default {
 
       const isDryRun = env.DRY_RUN === "true";
 
-      // Primary Path: Direct HTTP Fast-Path Engine (~10ms–50ms)
-      const httpRes = await executeDirectHttpBooking(decryptedClient, mondayStr, isDryRun);
+      const httpRes = await executeDirectHttpBooking(decryptedClient, slotMonday, isDryRun);
 
       if (httpRes.isDryRun) {
-        console.log(`⚡ [FAST-PATH DRY-RUN] Halted prior to POST for Job ${job.id} in ${httpRes.durationMs}ms.`);
+        console.log(`[DRY-RUN] Halted prior to any submission for Job ${job.id} in ${httpRes.durationMs}ms.`);
 
         await env.DB.prepare(
           `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
@@ -315,38 +354,40 @@ export default {
             job.id,
             job.client_id,
             httpRes.durationMs,
-            JSON.stringify({ engine: "Direct-HTTP-FastPath", latencyMs: httpRes.durationMs })
+            JSON.stringify({ week: slotMonday })
           )
           .run();
+
+        await doStub.fetch("https://lock/release");
 
         if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
           await sendTelegramNotification(
             env.TELEGRAM_BOT_TOKEN,
             env.TELEGRAM_CHAT_ID,
-            `⚡ *[FAST-PATH ~10ms DRY-RUN] Appointment Slot Detected!*\n\nJob ID: \`${job.id}\`\nClient: \`${decryptedClient.firstName} ${decryptedClient.lastName}\`\nCalendar: \`${job.category}\`\nWeek: \`${mondayStr}\`\nFast-Path Latency: \`${httpRes.durationMs}ms\`\n\n*Status:* Fast-Path Direct HTTP payload prepared in <15ms. Dry-Run Safety active.`
+            `🔍 *[DRY-RUN] Appointment Slot Detected!*\n\nJob ID: \`${job.id}\`\nClient: \`${decryptedClient.firstName} ${decryptedClient.lastName}\`\nCalendar: \`${job.category}\`\nWeek: \`${slotMonday}\`\n\n*Status:* Dry-Run Safety active — booking path still UNVERIFIED (G0).`
           );
         }
       } else if (httpRes.success) {
-        console.log(`🎉 [FAST-PATH SUCCESS] Booking completed in ${httpRes.durationMs}ms! Ref: ${httpRes.referenceId}`);
+        console.log(`Booking completed for Job ${job.id}. Ref: ${httpRes.referenceId}`);
         await env.DB.prepare(`UPDATE jobs SET status = 'BOOKED' WHERE id = ?`).bind(job.id).run();
+        await doStub.fetch("https://lock/seal");
         await env.DB.prepare(
-          `INSERT INTO daily_metrics (date, bookings_completed, slots_found) VALUES (DATE('now'), 1, 1)
-           ON CONFLICT(date) DO UPDATE SET bookings_completed = bookings_completed + 1, slots_found = slots_found + 1`
+          `INSERT INTO daily_metrics (date, bookings_completed) VALUES (DATE('now'), 1)
+           ON CONFLICT(date) DO UPDATE SET bookings_completed = bookings_completed + 1`
         ).run();
 
         if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
           await sendTelegramNotification(
             env.TELEGRAM_BOT_TOKEN,
             env.TELEGRAM_CHAT_ID,
-            `🎉 *[FAST-PATH BOOKED] Appointment Secured!* 🎉\n\nClient: \`${decryptedClient.firstName} ${decryptedClient.lastName}\`\nPassport: \`${maskPassport(decryptedClient.passportNumber)}\`\nReference ID: \`${httpRes.referenceId}\`\nExecution Time: \`${httpRes.durationMs}ms\` (Direct HTTP Fast-Path)`
+            `🎉 *[BOOKED] Appointment Secured!*\n\nClient: \`${decryptedClient.firstName} ${decryptedClient.lastName}\`\nPassport: \`${maskPassport(decryptedClient.passportNumber)}\`\nReference ID: \`${httpRes.referenceId}\`\nExecution Time: \`${httpRes.durationMs}ms\``
           );
         }
-      } else if (httpRes.requiresPlaywrightFallback) {
-        console.warn(`[FAST-PATH FALLBACK] Direct HTTP failed (${httpRes.errorMessage}). Launching Playwright browser fallback...`);
+      } else {
+        console.warn(`[FALLBACK] Direct booking unavailable (${httpRes.errorMessage}). Launching Playwright...`);
 
         const pwRes = await executePlaywrightFallback(env.MYBROWSER, decryptedClient, isDryRun);
 
-        // Record browser seconds in daily metrics
         await env.DB.prepare(
           `INSERT INTO daily_metrics (date, total_browser_seconds) VALUES (DATE('now'), ?)
            ON CONFLICT(date) DO UPDATE SET total_browser_seconds = total_browser_seconds + ?`
@@ -354,13 +395,22 @@ export default {
           .bind(pwRes.durationSeconds, pwRes.durationSeconds)
           .run();
 
+        await doStub.fetch("https://lock/release");
+
         if (!pwRes.success) {
           const checkCount = (job.check_count || 0) + 1;
           const backoffUntil = getBackoffUntilISO(checkCount);
           await env.DB.prepare(
-            `UPDATE jobs SET status = 'BOOKING_FAILED', backoff_until = ? WHERE id = ?`
+            `UPDATE jobs SET status = 'BOOKING_FAILED', backoff_until = ?, last_error_code = ? WHERE id = ?`
           )
-            .bind(backoffUntil, job.id)
+            .bind(backoffUntil, pwRes.errorMessage || "BOOKING_FAILED", job.id)
+            .run();
+
+          await env.DB.prepare(
+            `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
+             VALUES (?, ?, 'BOOKING_FAILED', ?, ?)`
+          )
+            .bind(job.id, job.client_id, Math.round(pwRes.durationSeconds * 1000), JSON.stringify({ error: pwRes.errorMessage }))
             .run();
         }
       }
@@ -576,7 +626,7 @@ function getAdminHTML(isDryRun: boolean): string {
     <header class="header">
       <div class="brand-group">
         <div class="brand-title">أوبيران لأتمتة الحجوزات</div>
-        <div class="badge-fastpath">⚡ المحرك السريع FAST-PATH <10ms</div>
+        <div class="badge-fastpath">⚡ محرك الفحص السريع</div>
         ${isDryRun ? '<div class="badge-dryrun">🛡️ وضع الاختبار التجريبي DRY-RUN</div>' : ''}
       </div>
       <button class="btn" onclick="openModal()">+ إضافة مرشح جديد</button>
@@ -588,7 +638,7 @@ function getAdminHTML(isDryRun: boolean): string {
         <div class="metric-val" id="val-active">-- / 10</div>
       </div>
       <div class="metric-card">
-        <div class="metric-label">نافذة عمل القاهرة (السفارة)</div>
+        <div class="metric-label">الفحص يعمل 24/7 — توقيت القاهرة</div>
         <div class="metric-val" id="val-cairo" style="font-size: 18px;">جاري الفحص...</div>
       </div>
       <div class="metric-card">
@@ -647,6 +697,37 @@ function getAdminHTML(isDryRun: boolean): string {
             <option value="Bachelor">بكالوريوس / تعليم جامعي</option>
             <option value="Master_PhD">ماجستير / دكتوراه / منح دراسية</option>
           </select>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>أقرب تاريخ مقبول</label>
+            <input type="date" id="startDate" value="2026-09-01" required>
+          </div>
+          <div class="form-group">
+            <label>آخر تاريخ مقبول</label>
+            <input type="date" id="endDate" value="2026-10-31" required>
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>من ساعة (توقيت القاهرة)</label>
+            <input type="time" id="timeStart" value="08:00">
+          </div>
+          <div class="form-group">
+            <label>إلى ساعة (توقيت القاهرة)</label>
+            <input type="time" id="timeEnd" value="16:00">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>الأيام المقبولة (الجمعة مغلق)</label>
+          <div style="display:flex; flex-wrap:wrap; gap:10px;">
+            <label style="margin:0;"><input type="checkbox" class="day-check" value="Monday" checked> الإثنين</label>
+            <label style="margin:0;"><input type="checkbox" class="day-check" value="Tuesday" checked> الثلاثاء</label>
+            <label style="margin:0;"><input type="checkbox" class="day-check" value="Wednesday" checked> الأربعاء</label>
+            <label style="margin:0;"><input type="checkbox" class="day-check" value="Thursday" checked> الخميس</label>
+            <label style="margin:0;"><input type="checkbox" class="day-check" value="Saturday"> السبت</label>
+            <label style="margin:0;"><input type="checkbox" class="day-check" value="Sunday"> الأحد</label>
+          </div>
         </div>
         <div class="form-grid">
           <div class="form-group">
@@ -710,7 +791,12 @@ function getAdminHTML(isDryRun: boolean): string {
         gender: document.getElementById('gender').value,
         email: document.getElementById('email').value,
         phone: document.getElementById('phone').value,
-        nationality: 'Egyptian'
+        nationality: 'Egyptian',
+        startDate: document.getElementById('startDate').value,
+        endDate: document.getElementById('endDate').value,
+        timeStart: document.getElementById('timeStart').value,
+        timeEnd: document.getElementById('timeEnd').value,
+        allowedDays: Array.from(document.querySelectorAll('.day-check:checked')).map(cb => cb.value)
       };
       await fetch('/api/clients', {
         method: 'POST',
@@ -726,7 +812,7 @@ function getAdminHTML(isDryRun: boolean): string {
         const res = await fetch('/api/status');
         const data = await res.json();
         document.getElementById('val-active').innerText = data.activeJobs + ' / 10';
-        document.getElementById('val-cairo').innerText = data.cairoTime.formattedCairoTime + (data.cairoTime.isWithinWindow ? ' (مفتوح)' : ' (مغلق)');
+        document.getElementById('val-cairo').innerText = data.cairoTime.formattedCairoTime + ' (فحص مستمر)';
         document.getElementById('val-checks').innerText = data.metricsToday.total_checks || 0;
         document.getElementById('val-booked').innerText = data.metricsToday.bookings_completed || 0;
 
