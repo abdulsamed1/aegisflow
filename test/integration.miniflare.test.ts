@@ -358,3 +358,62 @@ test("Integration: PUT /api/clients/:id round-trips updates, recomputes calendar
   assert.strictEqual(clients[0].firstName, "Khaled", "GET must decrypt the updated first name");
   assert.strictEqual(clients[0].street, "9 Nile Street", "GET must decrypt the updated street");
 });
+test("Integration: DELETE /api/clients/:id cascades job and writes audit row", async () => {
+  const mf = await startWorker();
+  const createRes = await mf.dispatchFetch("https://opran.local/api/clients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      firstName: "Ahmed", lastName: "Hassan", category: "Bachelor",
+      familyNameAtBirth: "Hassan", placeOfBirth: "Cairo", countryOfBirth: "Egypt",
+      nationalityAtBirth: "Egyptian", street: "15 Tahrir Square", postalCode: "11511",
+      city: "Cairo", passportIssueDate: "2018-06-15", passportIssuingCountry: "Egypt",
+      passportNumber: "A12345678", passportExpiry: "2030-01-01",
+      dob: "1990-05-05", gender: "Male", nationality: "Egyptian",
+      email: "ahmed@example.com", phone: "+201000000000"
+    })
+  });
+  const created = await createRes.json() as any;
+
+  const delRes = await mf.dispatchFetch(`https://opran.local/api/clients/${created.clientId}`, {
+    method: "DELETE"
+  });
+  assert.strictEqual(delRes.status, 200, await delRes.text());
+
+  const db = await mf.getD1Database("DB");
+  const clientRow = await db.prepare("SELECT * FROM clients WHERE id = ?").bind(created.clientId).first<any>();
+  assert.strictEqual(clientRow, null, "Client row must be gone");
+  const jobRow = await db.prepare("SELECT * FROM jobs WHERE client_id = ?").bind(created.clientId).first<any>();
+  assert.strictEqual(jobRow, null, "Job must cascade-delete");
+  const audit = await db.prepare("SELECT * FROM audit_logs WHERE event_type = 'CLIENT_DELETED' ORDER BY id DESC LIMIT 1").first<any>();
+  assert.ok(audit, "Audit row must exist");
+  assert.strictEqual(audit.details, created.clientId, "Audit details must carry the deleted client id");
+});
+
+test("Integration: DELETE /api/clients/:id returns 403 for BOOKED job", async () => {
+  const mf = await startWorker();
+  const createRes = await mf.dispatchFetch("https://opran.local/api/clients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      firstName: "Ahmed", lastName: "Hassan", category: "Bachelor",
+      familyNameAtBirth: "Hassan", placeOfBirth: "Cairo", countryOfBirth: "Egypt",
+      nationalityAtBirth: "Egyptian", street: "15 Tahrir Square", postalCode: "11511",
+      city: "Cairo", passportIssueDate: "2018-06-15", passportIssuingCountry: "Egypt",
+      passportNumber: "A12345678", passportExpiry: "2030-01-01",
+      dob: "1990-05-05", gender: "Male", nationality: "Egyptian",
+      email: "ahmed@example.com", phone: "+201000000000"
+    })
+  });
+  const created = await createRes.json() as any;
+
+  const db = await mf.getD1Database("DB");
+  await db.prepare("UPDATE jobs SET status = 'BOOKED' WHERE client_id = ?").bind(created.clientId).run();
+
+  const delRes = await mf.dispatchFetch(`https://opran.local/api/clients/${created.clientId}`, {
+    method: "DELETE"
+  });
+  assert.strictEqual(delRes.status, 403, await delRes.text());
+  const clientRow = await db.prepare("SELECT * FROM clients WHERE id = ?").bind(created.clientId).first<any>();
+  assert.ok(clientRow, "BOOKED client must remain");
+});
