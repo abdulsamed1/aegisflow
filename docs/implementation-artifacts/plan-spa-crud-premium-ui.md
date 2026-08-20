@@ -33,7 +33,7 @@
 - Consumes: `encryptPII`, `decryptPII`, `requireSecret`, `secretErrorResponse`, `corsHeaders` (all already in `src/index.ts`); mock env `createMockEnv()` from `test/api.test.ts`.
 - Produces: route `PUT /api/clients/:id` → 200 `{success:true, clientId}` | 400 `{error:"Invalid JSON body"|"Missing required field: <field>"}` | 404 `{error:"Client not found"}`. Update writes all 20 client columns; job row untouched. Empty `passportNumber` string = keep existing ciphertext.
 
-- [ ] **Step 1: Write failing unit tests**
+- [x] **Step 1: Write failing unit tests**
 
 Append to `test/api.test.ts` — first extend the mock. In `createMockEnv()`, replace the `first:` block (currently lines 20-28) with:
 
@@ -171,12 +171,12 @@ test("API Endpoint: PUT /api/clients/:id updates stored row and keeps empty pass
 });
 ```
 
-- [ ] **Step 2: Run unit tests to verify they fail**
+- [x] **Step 2: Run unit tests to verify they fail**
 
 Run: `node --import tsx --test --test-name-pattern="PUT /api/clients" test/api.test.ts`
 Expected: the 4 new tests FAIL (404/400/500 — route not implemented, mock handlers missing branch coverage).
 
-- [ ] **Step 3: Implement the PUT route**
+- [x] **Step 3: Implement the PUT route**
 
 In `src/index.ts`, insert immediately after the closing `}` of the POST `/api/clients` block (line 214):
 
@@ -270,12 +270,12 @@ In `src/index.ts`, insert immediately after the closing `}` of the POST `/api/cl
       }
 ```
 
-- [ ] **Step 4: Run unit tests to verify they pass**
+- [x] **Step 4: Run unit tests to verify they pass**
 
 Run: `node --import tsx --test --test-name-pattern="PUT /api/clients" test/api.test.ts`
 Expected: 4 PASS.
 
-- [ ] **Step 5: Write failing integration test (real D1 round-trip)**
+- [x] **Step 5: Write failing integration test (real D1 round-trip)**
 
 Append to `test/integration.miniflare.test.ts`:
 
@@ -338,17 +338,17 @@ test("Integration: PUT /api/clients/:id round-trips updates, recomputes calendar
 });
 ```
 
-- [ ] **Step 6: Run integration test to verify it fails**
+- [x] **Step 6: Run integration test to verify it fails**
 
 Run: `node --import tsx --test --test-name-pattern="PUT /api/clients" test/integration.miniflare.test.ts`
 Expected: FAIL (route not yet in the bundled worker — if Task 1 Step 3 is done this may PASS; in that case proceed). If the bundle is stale, re-run the suite so `before()` rebuilds `.tmp-bundle`.
 
-- [ ] **Step 7: Run full suites + typecheck**
+- [x] **Step 7: Run full suites + typecheck**
 
 Run: `npm test && npm run typecheck`
 Expected: all green, tsc clean.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/index.ts test/api.test.ts test/integration.miniflare.test.ts
@@ -368,7 +368,7 @@ git commit -m "feat: PUT /api/clients/:id full-field update with re-encryption a
 - Consumes: mock env with `first`/`run` branches from Task 1; `corsHeaders`.
 - Produces: route `DELETE /api/clients/:id` → 200 `{success:true, clientId}` | 404 `{error:"Client not found"}` | 403 `{error:"BOOKED clients are protected from deletion"}`. Writes one audit row (`event_type='CLIENT_DELETED'`, `details=clientId`, no FK columns), then deletes the client (job cascades via FK).
 
-- [ ] **Step 1: Write failing unit tests**
+- [x] **Step 1: Write failing unit tests**
 
 Append to `test/api.test.ts`:
 
@@ -432,12 +432,12 @@ Note: the mock's `createMockEnv()` return object currently lacks `logs` — exte
     __stores: { clients: clientsStore, jobs: jobsStore, logs: logsStore }
 ```
 
-- [ ] **Step 2: Run unit tests to verify they fail**
+- [x] **Step 2: Run unit tests to verify they fail**
 
 Run: `node --import tsx --test --test-name-pattern="DELETE /api/clients" test/api.test.ts`
 Expected: FAIL (route not implemented).
 
-- [ ] **Step 3: Implement the DELETE route**
+- [x] **Step 3: Implement the DELETE route**
 
 Insert after the PUT block in `src/index.ts`:
 
@@ -476,12 +476,12 @@ Insert after the PUT block in `src/index.ts`:
       }
 ```
 
-- [ ] **Step 4: Run unit tests to verify they pass**
+- [x] **Step 4: Run unit tests to verify they pass**
 
 Run: `node --import tsx --test --test-name-pattern="DELETE /api/clients" test/api.test.ts`
 Expected: 3 PASS.
 
-- [ ] **Step 5: Write failing integration tests**
+- [x] **Step 5: Write failing integration tests**
 
 Append to `test/integration.miniflare.test.ts`:
 
@@ -547,17 +547,17 @@ test("Integration: DELETE /api/clients/:id returns 403 for BOOKED job", async ()
 });
 ```
 
-- [ ] **Step 6: Run integration tests to verify they fail/pass**
+- [x] **Step 6: Run integration tests to verify they fail/pass**
 
 Run: `node --import tsx --test --test-name-pattern="DELETE /api/clients" test/integration.miniflare.test.ts`
 Expected: PASS (route exists from Step 3; if bundle is stale, `before()` rebuilds it).
 
-- [ ] **Step 7: Run full suites + typecheck**
+- [x] **Step 7: Run full suites + typecheck**
 
 Run: `npm test && npm run typecheck`
 Expected: all green.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/index.ts test/api.test.ts test/integration.miniflare.test.ts
@@ -576,7 +576,7 @@ git commit -m "feat: DELETE /api/clients/:id hard delete with BOOKED guard and C
 - Consumes: `decryptPII`.
 - Produces: GET `/api/clients` items additionally carry `email: string`, `phone: string`, `passportExpiry: string`. `passportNumber` remains masked-only.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 In `test/api.test.ts`, append:
 
@@ -598,12 +598,12 @@ test("API Endpoint: GET /api/clients returns edit-prefill fields (email, phone, 
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `node --import tsx --test --test-name-pattern="edit-prefill" test/api.test.ts`
 Expected: FAIL (`clients[0].email` undefined).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `src/index.ts` GET `/api/clients` decrypt map, after the `nationality: c.nationality,` line (line 108), insert:
 
@@ -613,12 +613,12 @@ In `src/index.ts` GET `/api/clients` decrypt map, after the `nationality: c.nati
               passportExpiry: c.passport_expiry,
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `node --import tsx --test --test-name-pattern="edit-prefill" test/api.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Extend the existing integration round-trip test**
+- [x] **Step 5: Extend the existing integration round-trip test**
 
 In `test/integration.miniflare.test.ts`, in the test `"Integration: client creation encrypts PII at rest and returns masked data on read"` (line 129), after the `maskedPassport` assertion (line 183), add:
 
@@ -628,12 +628,12 @@ In `test/integration.miniflare.test.ts`, in the test `"Integration: client creat
   assert.strictEqual(clients[0].passportExpiry, "2030-01-01", "GET must return passport expiry for edit prefill");
 ```
 
-- [ ] **Step 6: Run full suites + typecheck**
+- [x] **Step 6: Run full suites + typecheck**
 
 Run: `npm test && npm run typecheck`
 Expected: all green.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/index.ts test/api.test.ts test/integration.miniflare.test.ts
@@ -652,7 +652,7 @@ git commit -m "feat: GET /api/clients returns email, phone, passportExpiry for e
 - Consumes: none (pure markup/CSS).
 - Produces: dashboard HTML that loads `bootstrap.rtl.min.css` (SRI `sha384-CfCrinSRH2IR6a4e6fy2q6ioOX7O6Mtm1L9vRvFZ1trBncWmMePhzvafv7oIcWiW`), Alexandria + JetBrains Mono fonts, `data-bs-theme="dark"` on `<html>`, no custom `.btn`/table/modal/form CSS, skeleton + empty-state + reduced-motion CSS present.
 
-- [ ] **Step 1: Write failing HTML assertions**
+- [x] **Step 1: Write failing HTML assertions**
 
 In `test/api.test.ts`, append:
 
@@ -675,12 +675,12 @@ test("Dashboard: premium assets and CRUD affordances are present, no alert() err
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `node --import tsx --test --test-name-pattern="premium assets" test/api.test.ts`
 Expected: FAIL.
 
-- [ ] **Step 3: Head changes**
+- [x] **Step 3: Head changes**
 
 Replace line 468 and lines 473-475 in `src/index.ts`:
 
@@ -695,7 +695,7 @@ Replace line 468 and lines 473-475 in `src/index.ts`:
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.rtl.min.css" rel="stylesheet" integrity="sha384-CfCrinSRH2IR6a4e6fy2q6ioOX7O6Mtm1L9vRvFZ1trBncWmMePhzvafv7oIcWiW" crossorigin="anonymous">
 ```
 
-- [ ] **Step 4: Replace the `:root` palette and body**
+- [x] **Step 4: Replace the `:root` palette and body**
 
 Replace lines 477-503 (the `:root { ... }`, `* { ... }`, and `body { ... }` blocks) with:
 
@@ -791,7 +791,7 @@ Replace lines 477-503 (the `:root { ... }`, `* { ... }`, and `body { ... }` bloc
     }
 ```
 
-- [ ] **Step 5: Delete the CSS blocks Bootstrap now owns**
+- [x] **Step 5: Delete the CSS blocks Bootstrap now owns**
 
 Delete from `src/index.ts` these exact blocks:
 - `.table-card { ... }`, `.table-header { ... }`, `.table-header h2 { ... }`, `table { ... }`, `th, td { ... }`, `th { ... }` (lines ~565-583)
@@ -801,7 +801,7 @@ Delete from `src/index.ts` these exact blocks:
 
 Keep: `.container`, `.header`, `.brand-*`, `.badge-*`, `.grid-metrics`, `.metric-*`, `.mono`, `.status-pill*`, `.table-wrapper`, media queries (but the media query at lines 638-666 references `.btn`/`.form-grid`/`.modal` — replace its `.btn`/`.form-grid`/`.modal` rules with `.btn { min-height: 44px; }` only, and delete `.form-grid`/`.modal` lines from it).
 
-- [ ] **Step 6: Apply Bootstrap classes to markup**
+- [x] **Step 6: Apply Bootstrap classes to markup**
 
 In the dashboard body (same file):
 - Table: `<table>` → `<table class="table table-striped table-hover align-middle mb-0">`
@@ -812,17 +812,17 @@ In the dashboard body (same file):
 - Every `<input ...>` gets `class="form-control"` added; every `<select ...>` gets `class="form-select"`.
 - Delete the now-empty `<div class="form-grid">` wrappers or keep them for layout (keep — they only grid; Bootstrap doesn't conflict). Keep `.form-group` wrappers but their CSS was deleted — add `class="mb-3"` to each `.form-group` div instead (replace `class="form-group"` with `class="form-group mb-3"`).
 
-- [ ] **Step 7: Run the HTML test to verify it passes**
+- [x] **Step 7: Run the HTML test to verify it passes**
 
 Run: `node --import tsx --test --test-name-pattern="premium assets" test/api.test.ts`
 Expected: PASS.
 
-- [ ] **Step 8: Run full suites + typecheck**
+- [x] **Step 8: Run full suites + typecheck**
 
 Run: `npm test && npm run typecheck`
 Expected: all green (older dashboard tests still passing — verify the `admin form has new profile fields` test still matches; if `.form-group` replacement broke `id=` assertions, they must still pass since ids are untouched).
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add src/index.ts test/api.test.ts
@@ -840,7 +840,7 @@ git commit -m "style: premium dashboard — Bootstrap RTL CSS (SRI-pinned), Alex
 - Consumes: GET `/api/clients` items (with Task 3 prefill fields), PUT/DELETE routes (Tasks 1-2), existing `toggleJob`.
 - Produces: `openEditModal(clientId)`, `deleteClient(clientId)` global functions; edit mode reuses the add form; `window.__clients` holds the last loaded list; skeleton rows on first load; composed empty state.
 
-- [ ] **Step 1: Replace the loading placeholder row**
+- [x] **Step 1: Replace the loading placeholder row**
 
 In the table markup, replace:
 
@@ -862,11 +862,11 @@ with:
           </tbody>
 ```
 
-- [ ] **Step 2: Make the active-candidates metric card featured**
+- [x] **Step 2: Make the active-candidates metric card featured**
 
 Change `<div class="metric-card">` (the one containing `val-active`) to `<div class="metric-card featured">`.
 
-- [ ] **Step 3: Rewrite the modal/table JS**
+- [x] **Step 3: Rewrite the modal/table JS**
 
 Replace the `<script>` block's `openModal`/`closeModal` definitions and the form submit handler and `loadDashboard` with:
 
@@ -1010,7 +1010,7 @@ Replace the `<script>` block's `openModal`/`closeModal` definitions and the form
     setInterval(loadDashboard, 10000);
 ```
 
-- [ ] **Step 4: Add the inline error box to the modal**
+- [x] **Step 4: Add the inline error box to the modal**
 
 Right after the modal title/close-button and before `<form id="add-client-form">`, insert:
 
@@ -1018,17 +1018,17 @@ Right after the modal title/close-button and before `<form id="add-client-form">
         <div class="alert alert-danger d-none" id="client-form-error" role="alert"></div>
 ```
 
-- [ ] **Step 5: Run the dashboard HTML test**
+- [x] **Step 5: Run the dashboard HTML test**
 
 Run: `node --import tsx --test --test-name-pattern="premium assets" test/api.test.ts`
 Expected: PASS (assertions from Task 4 Step 1, including `!html.includes("فشل الحفظ")`).
 
-- [ ] **Step 6: Run full suites + typecheck + dry-run build**
+- [x] **Step 6: Run full suites + typecheck + dry-run build**
 
 Run: `npm test && npm run typecheck && npx wrangler deploy --dry-run`
 Expected: all green, bundle builds.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/index.ts
@@ -1045,12 +1045,12 @@ git commit -m "feat: SPA edit/delete client actions with shared modal, inline er
 **Interfaces:**
 - Consumes: final code state from Tasks 1-5.
 
-- [ ] **Step 1: Full verification**
+- [x] **Step 1: Full verification**
 
 Run: `npm test && npm run typecheck && npx wrangler deploy --dry-run`
 Expected: all green. Record the final test counts from the `npm test` tail (lines `ℹ tests N`, `ℹ pass N`).
 
-- [ ] **Step 2: Update docs/test-summary.md**
+- [x] **Step 2: Update docs/test-summary.md**
 
 Update the status line and the checklist: replace the stale count with the recorded N, and add lines:
 ```
@@ -1061,7 +1061,7 @@ Update the status line and the checklist: replace the stale count with the recor
 ```
 Update the `ℹ tests`/`ℹ pass` code block with the real numbers.
 
-- [ ] **Step 3: Update Todo.md**
+- [x] **Step 3: Update Todo.md**
 
 In section 1 table, change the client-form row and add a row:
 ```
@@ -1069,22 +1069,22 @@ In section 1 table, change the client-form row and add a row:
 | لوحة المشغل (عربية) | ✅ **ترقية Premium** | Alexandria + Bootstrap RTL + skeleton/empty/inline errors — بلا أي تغيير على مسار الحجز |
 ```
 
-- [ ] **Step 4: Update docs/architecture.md API list**
+- [x] **Step 4: Update docs/architecture.md API list**
 
 If `docs/architecture.md` lists endpoints, extend the list with `PUT /api/clients/:id` and `DELETE /api/clients/:id` (one line each, matching its table style). If it has no endpoint list, skip this step (do not invent a section).
 
-- [ ] **Step 5: Mark the spec done**
+- [x] **Step 5: Mark the spec done**
 
 In `docs/implementation-artifacts/spec-spa-crud-premium-ui.md` frontmatter: `status: 'done'`.
 
-- [ ] **Step 6: Commit docs**
+- [x] **Step 6: Commit docs**
 
 ```bash
 git add docs/test-summary.md Todo.md docs/architecture.md docs/implementation-artifacts/spec-spa-crud-premium-ui.md
 git commit -m "docs: sync CRUD + premium UI status (tests, Todo, spec done)"
 ```
 
-- [ ] **Step 7: Deploy (detached — never let a shell timeout kill the deploy)**
+- [x] **Step 7: Deploy (detached — never let a shell timeout kill the deploy)**
 
 Run:
 
@@ -1094,7 +1094,7 @@ setsid nohup bash -c 'npx wrangler deploy' > /tmp/opencode/deploy-crud.log 2>&1 
 
 Expected: `Uploaded opran-booking ... Deployed opran-booking triggers ... Current Version ID: ...`
 
-- [ ] **Step 8: Verify production**
+- [x] **Step 8: Verify production**
 
 Run (use the operator's existing Access Service Token values — obtain them from the operator, never store them in the repo):
 
