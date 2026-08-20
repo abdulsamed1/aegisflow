@@ -349,6 +349,8 @@ test("Dashboard: CRUD affordances wired", async () => {
   assert.ok(html.includes("client-form-error"), "Inline form error box must exist");
   assert.ok(html.includes("empty-state"), "Composed empty state must exist");
   assert.ok(!html.includes("فشل الحفظ"), "Legacy alert-based form error must be removed");
+  assert.ok(html.includes("passportNumber').required = true"), "Add mode must require the passport");
+  assert.ok(html.includes("passportNumber').required = false"), "Edit mode must allow empty passport (keep existing)");
 });
 
 test("API Endpoint: PUT /api/clients/:id rejects missing field with 400", async () => {

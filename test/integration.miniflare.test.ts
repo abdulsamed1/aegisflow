@@ -420,3 +420,39 @@ test("Integration: DELETE /api/clients/:id returns 403 for BOOKED job", async ()
   const clientRow = await db.prepare("SELECT * FROM clients WHERE id = ?").bind(created.clientId).first<any>();
   assert.ok(clientRow, "BOOKED client must remain");
 });
+
+test("Integration: DELETE succeeds when the client has scheduler audit rows (FK detach)", async () => {
+  const mf = await startWorker();
+  const createRes = await mf.dispatchFetch("https://opran.local/api/clients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      firstName: "Ahmed", lastName: "Hassan", category: "Bachelor",
+      familyNameAtBirth: "Hassan", placeOfBirth: "Cairo", countryOfBirth: "Egypt",
+      nationalityAtBirth: "Egyptian", street: "15 Tahrir Square", postalCode: "11511",
+      city: "Cairo", passportIssueDate: "2018-06-15", passportIssuingCountry: "Egypt",
+      passportNumber: "A12345678", passportExpiry: "2030-01-01",
+      dob: "1990-05-05", gender: "Male", nationality: "Egyptian",
+      email: "ahmed@example.com", phone: "+201000000000"
+    })
+  });
+  const created = await createRes.json() as any;
+
+  const db = await mf.getD1Database("DB");
+  await db.prepare("INSERT INTO audit_logs (job_id, client_id, event_type) VALUES (?, ?, 'NO_APPOINTMENT')")
+    .bind(created.jobId, created.clientId).run();
+
+  const delRes = await mf.dispatchFetch(`https://opran.local/api/clients/${created.clientId}`, {
+    method: "DELETE"
+  });
+  assert.strictEqual(delRes.status, 200, await delRes.text());
+
+  const clientRow = await db.prepare("SELECT * FROM clients WHERE id = ?").bind(created.clientId).first<any>();
+  assert.strictEqual(clientRow, null, "Client row must be gone");
+  const jobRow = await db.prepare("SELECT * FROM jobs WHERE id = ?").bind(created.jobId).first<any>();
+  assert.strictEqual(jobRow, null, "Job row must be gone");
+  const auditRow = await db.prepare("SELECT * FROM audit_logs WHERE event_type = 'NO_APPOINTMENT'").first<any>();
+  assert.ok(auditRow, "Scheduler audit row must survive the delete");
+  assert.strictEqual(auditRow.client_id, null, "Audit client_id FK must be detached");
+  assert.strictEqual(auditRow.job_id, null, "Audit job_id FK must be detached");
+});
