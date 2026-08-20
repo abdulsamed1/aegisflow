@@ -301,3 +301,60 @@ test("Integration: stale lock (crashed execution) expires and allows takeover af
 
   rmSync(persistDir, { recursive: true, force: true });
 });
+
+test("Integration: PUT /api/clients/:id round-trips updates, recomputes calendar, keeps passport on empty", async () => {
+  const mf = await startWorker();
+
+  const createRes = await mf.dispatchFetch("https://opran.local/api/clients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      firstName: "Ahmed", lastName: "Hassan", category: "Bachelor",
+      familyNameAtBirth: "Hassan", placeOfBirth: "Cairo", countryOfBirth: "Egypt",
+      nationalityAtBirth: "Egyptian", street: "15 Tahrir Square", postalCode: "11511",
+      city: "Cairo", passportIssueDate: "2018-06-15", passportIssuingCountry: "Egypt",
+      passportNumber: "A12345678", passportExpiry: "2030-01-01",
+      dob: "1990-05-05", gender: "Male", nationality: "Egyptian",
+      email: "ahmed@example.com", phone: "+201000000000"
+    })
+  });
+  const created = await createRes.json() as any;
+
+  const db = await mf.getD1Database("DB");
+  const before = await db.prepare("SELECT passport_number_enc, calendar_id FROM clients WHERE id = ?")
+    .bind(created.clientId).first<any>();
+  assert.strictEqual(before.calendar_id, 44281520, "Bachelor must map to 44281520 before update");
+
+  const putRes = await mf.dispatchFetch(`https://opran.local/api/clients/${created.clientId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      firstName: "Khaled", lastName: "Hassan", category: "Master_PhD",
+      familyNameAtBirth: "Hassan", placeOfBirth: "Giza", countryOfBirth: "Egypt",
+      nationalityAtBirth: "Egyptian", street: "9 Nile Street", postalCode: "12211",
+      city: "Giza", passportIssueDate: "2018-06-15", passportIssuingCountry: "Egypt",
+      passportNumber: "", passportExpiry: "2031-06-30",
+      dob: "1990-05-05", gender: "Male", nationality: "Egyptian",
+      email: "khaled@example.com", phone: "+201000000001"
+    })
+  });
+  assert.strictEqual(putRes.status, 200, await putRes.text());
+
+  const row = await db.prepare("SELECT * FROM clients WHERE id = ?").bind(created.clientId).first<any>();
+  assert.strictEqual(row.category, "Master_PhD", "Category must update");
+  assert.strictEqual(row.calendar_id, 44279679, "calendar_id must follow the new category");
+  assert.strictEqual(row.passport_number_enc, before.passport_number_enc, "Empty passport must keep existing ciphertext");
+  assert.notStrictEqual(row.first_name_enc, "Khaled", "First name must be stored encrypted");
+  assert.notStrictEqual(row.email_enc, "khaled@example.com", "Email must be stored encrypted");
+  assert.strictEqual(row.place_of_birth, "Giza", "Plaintext-class field must update directly");
+  assert.strictEqual(row.passport_expiry, "2031-06-30", "Passport expiry must update");
+
+  const jobRow = await db.prepare("SELECT * FROM jobs WHERE client_id = ?").bind(created.clientId).first<any>();
+  assert.ok(jobRow, "Job must survive the update");
+  assert.strictEqual(jobRow.status, "ACTIVE", "Update must not touch job state");
+
+  const listRes = await mf.dispatchFetch("https://opran.local/api/clients");
+  const clients = await listRes.json() as any[];
+  assert.strictEqual(clients[0].firstName, "Khaled", "GET must decrypt the updated first name");
+  assert.strictEqual(clients[0].street, "9 Nile Street", "GET must decrypt the updated street");
+});
