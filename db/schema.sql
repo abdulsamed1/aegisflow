@@ -13,6 +13,15 @@ CREATE TABLE IF NOT EXISTS clients (
     passport_expiry TEXT NOT NULL,
     email_enc TEXT NOT NULL,
     phone_enc TEXT NOT NULL,
+    family_name_at_birth_enc TEXT NOT NULL,
+    place_of_birth TEXT NOT NULL,
+    country_of_birth TEXT NOT NULL,
+    nationality_at_birth TEXT NOT NULL,
+    address_street_enc TEXT NOT NULL,
+    address_postal_code_enc TEXT NOT NULL,
+    address_city_enc TEXT NOT NULL,
+    passport_issue_date TEXT NOT NULL,
+    passport_issuing_country TEXT NOT NULL,
     category TEXT CHECK (category IN ('Bachelor', 'Master_PhD')) NOT NULL,
     calendar_id INTEGER NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -28,11 +37,11 @@ CREATE TABLE IF NOT EXISTS jobs (
         'SEARCHING', 'BOOKING', 'BOOKED', 'BOOKING_FAILED',
         'TEMPORARY_ERROR', 'PORTAL_ERROR', 'CANCELLED', 'EXPIRED'
     )) DEFAULT 'DRAFT',
-    start_date TEXT NOT NULL,
-    end_date TEXT NOT NULL,
-    allowed_days TEXT NOT NULL, -- JSON Array: ["Monday", "Wednesday"]
-    preferred_time_start TEXT DEFAULT '08:00',
-    preferred_time_end TEXT DEFAULT '16:00',
+    start_date TEXT NOT NULL, -- legacy: written once with global constants, never read (D8/AD-11)
+    end_date TEXT NOT NULL, -- legacy: written once with global constants, never read (D8/AD-11)
+    allowed_days TEXT NOT NULL, -- legacy: JSON Array, all 7 days, never read (D8/AD-11)
+    preferred_time_start TEXT DEFAULT '07:00', -- legacy: global window constant
+    preferred_time_end TEXT DEFAULT '18:00', -- legacy: global window constant
     check_count INTEGER DEFAULT 0,
     last_check TIMESTAMP,
     last_error_code TEXT,
