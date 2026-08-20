@@ -17,3 +17,11 @@ Findings surfaced by the 2026-08-20 global-rules-refactor review that are real b
 - source_spec: none
   summary: Escape interpolated values in the admin dashboard table renderer (XSS hardening)
   evidence: The dashboard builds rows via unescaped `${...}` innerHTML interpolation (first/last name, jobId in inline onclick). Safe today only because job IDs are generated, but any imported/manual row or future free-text rendering would enable stored XSS. Pre-existing pattern, not introduced by the refactor.
+
+- source_spec: none
+  summary: Migrate audit_logs FKs to ON DELETE SET NULL
+  evidence: 2026-08-20 CRUD workaround: DELETE /api/clients/:id now nulls audit_logs.client_id/job_id before deleting (fix commit 3e0fe0b), because the table's REFERENCES lack an ON DELETE action and scheduler scan rows would block deletes (D1 enforces FKs). The null-then-delete is correct and covered by an integration test, but an operator-gated migration adding ON DELETE SET NULL would make the workaround unnecessary. Revisit at the next schema migration.
+
+- source_spec: none
+  summary: Widen the delete/booking state guard beyond BOOKED before live booking
+  evidence: The DELETE route guards only BOOKED (403), and cascade-deleting a job mid-flight (ACTIVE/SEARCHING/BOOKING under a DO lock) would strand the lock. Safe today: single operator behind Access + booking path UNVERIFIED. Revisit before G0 closes: guard all mid-flight states and coordinate with the DO lock.
