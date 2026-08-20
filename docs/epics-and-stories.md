@@ -27,18 +27,19 @@
 #### Acceptance Criteria:
 1. REST endpoints: `GET /api/clients`, `POST /api/clients`, `PUT /api/clients/:id`, `DELETE /api/clients/:id`.
 2. Job lifecycle endpoints: `POST /api/jobs/:id/activate`, `POST /api/jobs/:id/pause`, `POST /api/jobs/:id/cancel`.
-3. System rejects requests attempting to create more than 10 active jobs.
+3. Client creation accepts the complete BMEIA identity profile (birth, address, passport-issue fields — D8/FR-1 amendment 2026-08-20), encrypted per the field-class convention.
+4. System rejects requests attempting to create more than 10 active jobs.
 
 ---
 
 ### Story 1.3: Structural Validation Engine
 - **As a** System,  
-- **I want to** validate candidate PII and date ranges before allowing job activation,  
-- **So that** malformed or expired candidate data does not waste availability scans.
+- **I want to** validate candidate PII before allowing job activation,  
+- **So that** malformed candidate data does not waste availability scans.
 
 #### Acceptance Criteria:
 1. Passport expiry rule applied per operator configuration. `[ASSUMPTION: the 6-month rule must be confirmed against the official requirements list before it becomes a hard gate]`
-2. Target appointment date range must be chronological (`start_date <= end_date`).
+2. All required client fields (identity, birth, address, passport-issue data — 2026-08-20 amendment) must be present and non-empty before activation.
 3. Invalid data transitions record to `VALIDATION_ERROR` with human-readable error messages.
 
 ---
@@ -57,16 +58,17 @@
 
 ---
 
-### Story 2.2: 24/7 Fair Queue Scheduler (D5)
+### Story 2.2: Global-Window Fair Queue Scheduler (D5 amended 2026-08-20)
 - **As a** Scheduler,  
-- **I want to** run every minute around the clock and pick up to 3 active jobs by oldest `last_check` timestamp, scanning each job's accepted week range,  
-- **So that** any slot appearing at any time is captured and checks are distributed fairly.
+- **I want to** run every minute inside the global 07:00–18:00 Cairo window (daily, Friday included) and pick up to 3 active jobs by oldest `last_check` timestamp, scanning a rolling 8-week horizon,  
+- **So that** any slot appearing inside the window is captured and checks are distributed fairly.
 
 #### Acceptance Criteria:
-1. Cron Trigger executes 24/7 (no time-window gate; Cairo time used for display only).
+1. Cron Trigger fires every minute; execution is gated to the global 07:00–18:00 Cairo window (daily, Friday included) — outside the window the tick exits immediately.
 2. Scheduler queries D1 for enabled `ACTIVE` jobs ordered strictly by `last_check ASC`, processing up to 3 per tick.
-3. Each job's scan covers every Monday within its `start_date`–`end_date` window.
+3. Each job's scan covers the current week plus the next 7 weeks (rolling 8-week horizon, global constant — replaces the removed `start_date`–`end_date` per-client window).
 4. Candidates with older checks are processed first, preventing backlog starvation.
+5. No date-based expiry: a request stays `ACTIVE` until `BOOKED` or operator cancellation (D8).
 
 ---
 
@@ -128,7 +130,7 @@
 
 #### Acceptance Criteria:
 1. Top bar displays Cairo Time clock, Dry-Run status banner, and resource budget gauge.
-2. Client table lists all candidates with status pills and action toggles (Activate/Pause/Edit).
+2. Client table lists all candidates with status pills and action toggles (Activate/Pause/Cancel — cancel added per D8, 2026-08-20).
 3. Responsive SPA loads in under 1 second from Cloudflare Workers Static Assets.
 
 ---

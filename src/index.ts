@@ -1,5 +1,5 @@
 import { scanAvailability } from "./scanner";
-import { getCairoTimeInfo, listMondaysInRange } from "./scheduler";
+import { getCairoTimeInfo, listMondaysInRange, SCHEDULER_PICK_QUERY } from "./scheduler";
 import { sendTelegramNotification } from "./telegram";
 import { JobLockDO } from "./lock";
 import { encryptPII, decryptPII, maskPassport } from "./crypto";
@@ -129,7 +129,7 @@ export default {
 
         await env.DB.prepare(
           `INSERT INTO clients (id, first_name_enc, last_name_enc, gender, dob, nationality, passport_number_enc, passport_expiry, email_enc, phone_enc, category, calendar_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
           .bind(
             clientId,
@@ -234,16 +234,7 @@ export default {
     }
 
     // Fair scheduler (AD-7): up to 3 oldest-outstanding jobs per tick
-    const { results: jobs } = await env.DB.prepare(
-      `SELECT jobs.*, clients.*
-       FROM jobs 
-       JOIN clients ON jobs.client_id = clients.id
-       WHERE jobs.enabled = 1 
-         AND jobs.status = 'ACTIVE' 
-         AND (jobs.backoff_until IS NULL OR jobs.backoff_until <= CURRENT_TIMESTAMP)
-       ORDER BY jobs.last_check ASC 
-       LIMIT 3`
-    ).all<any>();
+    const { results: jobs } = await env.DB.prepare(SCHEDULER_PICK_QUERY).all<any>();
 
     if (!jobs || jobs.length === 0) {
       return;
