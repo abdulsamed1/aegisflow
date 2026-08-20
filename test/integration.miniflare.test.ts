@@ -182,6 +182,9 @@ test("Integration: client creation encrypts PII at rest and returns masked data 
   assert.strictEqual(clients[0].placeOfBirth, "Cairo", "GET must return plaintext-class field");
   assert.strictEqual(clients[0].maskedPassport, "A1****78", "GET must return masked passport");
   assert.ok(!JSON.stringify(clients).includes("A12345678"), "Raw passport must never appear in API output");
+  assert.strictEqual(clients[0].email, "ahmed@example.com", "GET must decrypt email for edit prefill");
+  assert.strictEqual(clients[0].phone, "+201000000000", "GET must decrypt phone for edit prefill");
+  assert.strictEqual(clients[0].passportExpiry, "2030-01-01", "GET must return passport expiry for edit prefill");
 });
 
 test("Integration: missing PII_ENCRYPTION_KEY fails closed with 500", async () => {
