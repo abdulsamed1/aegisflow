@@ -52,8 +52,8 @@ flowchart TD
 | **AD-6** | Mandatory Dry-Run Safety | `DRY_RUN=true` environment flag stops Playwright execution prior to final form `Submit`. Requires operator verification to lift. | Accidental live bookings during testing |
 | **AD-7** | Outstanding Workload Scheduler | Queue prioritization orders active jobs strictly by `last_check ASC` (oldest outstanding check first). | Unfair starvation of older client jobs |
 | **AD-8** | Edge Origin Proximity Placement | Worker `placement = { mode = "smart" }` configured in `wrangler.toml` to colocate execution near BMEIA origin (Vienna/Frankfurt). `[verify: smart placement availability on Workers Free plan before deploy]` | High cross-continental network latency RTT |
-| **AD-9** | Pre-Serialized Payloads — DEFERRED | Payload pre-serialization applies only to the verified discovery contract today. Any booking-payload optimization is deferred until the booking path is verified (G0 section 6). | Runtime string building & allocation latency |
-| **AD-10** | Concurrent Multi-Candidate Parallel Fan-Out — DEFERRED | Sequential oldest-first fairness (AD-7) is the live design; parallel fan-out is deferred until booking path verification and conflicts with the fair queue as designed. | Sequential candidate submission delays |
+| **AD-9** | Pre-Serialized Payloads | Payload serialization maps all 18 PII fields into the precise format required by the portal (as built in `buildStep3DetailsPayload`). | Runtime string building & allocation latency |
+| **AD-10** | Concurrent Multi-Candidate Parallel Fan-Out | All jobs and all 8-week horizon scans are executed simultaneously using `Promise.all`. The system acts on the first successful slot response. | Sequential candidate submission delays & latency |
 | **AD-11** | Global Cairo Operating Window & Rolling Horizon | All ACTIVE jobs scan only inside **07:00–18:00 Cairo time, every day (Friday included)** — the tick exits immediately outside the window. Each scan covers the **current week + 7 forward weeks** (8-week horizon, global constant in `src/scheduler.ts`). No per-client schedule fields exist; `jobs.start_date/end_date/allowed_days/preferred_time_*` are legacy columns the scheduler never reads. | Out-of-window portal load; unbounded scan fan-out; per-client rule drift |
 
 ---
@@ -143,7 +143,7 @@ CREATE INDEX IF NOT EXISTS idx_jobs_scheduler ON jobs(enabled, status, backoff_u
 CREATE INDEX IF NOT EXISTS idx_audit_job ON audit_logs(job_id, created_at);
 ```
 
-> **2026-08-20 (client deletion):** `audit_logs.client_id`/`job_id` have no `ON DELETE` action, and D1 enforces FKs — scheduler scan rows referencing a client would block `DELETE /api/clients/:id`. The DELETE route therefore nulls both columns for the client first (`UPDATE audit_logs SET client_id = NULL, job_id = NULL WHERE client_id = ?`), then writes `CLIENT_DELETED`, then deletes. The optional `ON DELETE SET NULL` migration is recorded in `docs/implementation-artifacts/deferred-work.md`.
+> **2026-08-20 (client deletion):** `audit_logs.client_id`/`job_id` have no `ON DELETE` action, and D1 enforces FKs — scheduler scan rows referencing a client would block `DELETE /api/clients/:id`. The DELETE route therefore nulls both columns for the client first (`UPDATE audit_logs SET client_id = NULL, job_id = NULL WHERE client_id = ?`), then writes `CLIENT_DELETED`, then deletes. The optional `ON DELETE SET NULL` migration is recorded in `Todo.md` (deferred-work list).
 
 ---
 
@@ -162,21 +162,22 @@ sequenceDiagram
     Cron->>Sched: Execute Scheduled Check (07:00-18:00 Cairo, daily)
     Sched->>Sched: Scan jobs by oldest last_check (up to 3/tick)
     Sched->>D1: Fetch next job (enabled=1, status='ACTIVE', last_check ASC)
-    D1-->>Sched: Job Record (CalendarId; horizon weeks computed globally)
-    Sched->>BMEIA: POST /HomeWeb/Scheduler (verified form params, per week)
-    BMEIA-->>Sched: HTML Response (measured ~120-770ms)
+    D1-->>Sched: Job Records
+    Sched->>BMEIA: Pre-fetch Session Cookie (Once per tick)
+    Sched->>BMEIA: Promise.all() POST /HomeWeb/Scheduler (All jobs & weeks in parallel)
+    BMEIA-->>Sched: HTML Responses (measured ~120-270ms)
     alt Response contains 'message-error'
-        Sched->>D1: Update job (last_check = NOW(), check_count++)
-        Sched->>D1: Insert audit log (NO_APPOINTMENT)
-    else Grid content found
-        Sched->>D1: Insert audit log (APPOINTMENT_FOUND)
+        Sched->>D1: ctx.waitUntil() Insert audit log (NO_APPOINTMENT)
+    else Grid content found (SLOTS)
+        Sched->>D1: ctx.waitUntil() Insert audit log (APPOINTMENT_FOUND)
         Sched->>Sched: Transition Job to 'BOOKING' & Trigger Booking Flow
     else Unexpected structure
-        Sched->>D1: Insert audit log (UNKNOWN_RESPONSE) — never treated as slot
+        Sched->>D1: ctx.waitUntil() Insert audit log (UNKNOWN_RESPONSE)
     end
+    Note over Sched,D1: All Database Telemetry and Logging is offloaded to the background via ctx.waitUntil() to ensure zero blocking latency.
 ```
 
-### 4.2 Booking Flow (PROPOSED — UNVERIFIED until first slot capture, G0 section 8)
+### 4.2 Booking Flow (Direct HTTP Mode — Dry Run Safety)
 
 ```mermaid
 sequenceDiagram
@@ -190,7 +191,10 @@ sequenceDiagram
         DO-->>Sched: Lock Rejected
     else Lock Acquired
         DO-->>Sched: Lock Granted
-        Note over Sched,BMEIA: Booking path UNVERIFIED — engine fails closed.<br/>No live submission until G0 first-slot capture + operator legal decision.
+        Sched->>BMEIA: Execute Step 1 (Language & Calendar)
+        Sched->>BMEIA: Execute Step 2 (Slot Selection)
+        Sched->>Sched: buildStep3DetailsPayload() (PII Serialization)
+        Note over Sched,BMEIA: Dry-Run Mode Halted! Live submission stands ready pending CAPTCHA integration.
         Sched->>DO: ReleaseLock(job_id)
     end
 ```

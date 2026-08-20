@@ -1,4 +1,4 @@
-import { scanAvailability } from "./scanner";
+import { scanAvailability, getSessionCookie } from "./scanner";
 import { getCairoTimeInfo, rollingMondays, SCHEDULER_PICK_QUERY } from "./scheduler";
 import { sendTelegramNotification } from "./telegram";
 import { JobLockDO } from "./lock";
@@ -148,6 +148,13 @@ export default {
           });
         }
 
+        if (body.category !== "Bachelor" && body.category !== "Master_PhD") {
+          return new Response(JSON.stringify({ error: "Invalid category. Must be 'Bachelor' or 'Master_PhD'" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
+
         const clientId = `client_${Date.now()}`;
 
         const firstNameEnc = await encryptPII(body.firstName, secret);
@@ -239,6 +246,13 @@ export default {
           : (typeof body[f] !== "string" || !body[f].trim()));
         if (missing) {
           return new Response(JSON.stringify({ error: `Missing required field: ${missing}` }), {
+            status: 400,
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
+
+        if (body.category !== "Bachelor" && body.category !== "Master_PhD") {
+          return new Response(JSON.stringify({ error: "Invalid category. Must be 'Bachelor' or 'Master_PhD'" }), {
             status: 400,
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
@@ -412,61 +426,56 @@ export default {
       return;
     }
 
+    // Pre-fetch session cookie once for all parallel requests
+    const sessionCookie = await getSessionCookie(env.SESSION_KV);
+
     // Rolling 8-week horizon (AD-11): current week + 7 forward weeks, same for every job.
     // Requests stay ACTIVE until booked or cancelled — there is no date-based expiry (D8).
     const mondays = rollingMondays();
+    const bgTasks: Promise<any>[] = [];
 
-    for (const job of jobs) {
+    await Promise.all(jobs.map(async (job) => {
+      // Parallelize 8-week scan for this job
+      const scanPromises = mondays.map(mondayStr => scanAvailability(job.calendar_id, mondayStr, sessionCookie));
+      const scanResults = await Promise.all(scanPromises);
 
-      let slotMonday: string | null = null;
-      for (const mondayStr of mondays) {
-        const result = await scanAvailability(job.calendar_id, mondayStr, env.SESSION_KV);
-
-        await env.DB.prepare(
-          `UPDATE jobs SET last_check = CURRENT_TIMESTAMP, check_count = check_count + 1 WHERE id = ?`
-        )
-          .bind(job.id)
-          .run();
-
-        await env.DB.prepare(
-          `INSERT INTO daily_metrics (date, total_checks) VALUES (DATE('now'), 1)
-           ON CONFLICT(date) DO UPDATE SET total_checks = total_checks + 1`
-        ).run();
-
+      // We only care if we found a slot, or track the first unknown error if all fail
+      const slotResult = scanResults.find(r => r.status === "SLOTS");
+      const unknownResult = scanResults.find(r => r.status === "UNKNOWN");
+      
+      // Background DB Logging
+      bgTasks.push(env.DB.prepare(
+        `UPDATE jobs SET last_check = CURRENT_TIMESTAMP, check_count = check_count + 8 WHERE id = ?`
+      ).bind(job.id).run());
+      
+      bgTasks.push(env.DB.prepare(
+        `INSERT INTO daily_metrics (date, total_checks) VALUES (DATE('now'), 8)
+         ON CONFLICT(date) DO UPDATE SET total_checks = total_checks + 8`
+      ).run());
+      
+      // Log all scan results
+      for (const result of scanResults) {
         const eventType = result.status === "SLOTS" ? "APPOINTMENT_FOUND" : result.status === "UNKNOWN" ? "UNKNOWN_RESPONSE" : "NO_APPOINTMENT";
-
-        await env.DB.prepare(
+        bgTasks.push(env.DB.prepare(
           `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
            VALUES (?, ?, ?, ?, ?)`
-        )
-          .bind(
-            job.id,
-            job.client_id,
-            eventType,
-            result.durationMs,
-            JSON.stringify({ week: mondayStr, responseLength: result.rawResponseLength, error: result.errorMessage })
-          )
-          .run();
-
-        if (result.status === "SLOTS") {
-          slotMonday = mondayStr;
-          await env.DB.prepare(
-            `INSERT INTO daily_metrics (date, slots_found) VALUES (DATE('now'), 1)
-             ON CONFLICT(date) DO UPDATE SET slots_found = slots_found + 1`
-          ).run();
-          break;
-        }
-        if (result.status === "UNKNOWN") {
-          await env.DB.prepare(
-            `UPDATE jobs SET last_error_code = ? WHERE id = ?`
-          )
-            .bind(result.errorMessage || "UNKNOWN_RESPONSE", job.id)
-            .run();
-        }
+        ).bind(job.id, job.client_id, eventType, result.durationMs, JSON.stringify({ week: result.matchedMonday, responseLength: result.rawResponseLength, error: result.errorMessage })).run());
       }
 
-      if (!slotMonday) continue;
+      if (slotResult) {
+        bgTasks.push(env.DB.prepare(
+          `INSERT INTO daily_metrics (date, slots_found) VALUES (DATE('now'), 1)
+           ON CONFLICT(date) DO UPDATE SET slots_found = slots_found + 1`
+        ).run());
+      } else if (unknownResult) {
+        bgTasks.push(env.DB.prepare(
+          `UPDATE jobs SET last_error_code = ? WHERE id = ?`
+        ).bind(unknownResult.errorMessage || "UNKNOWN_RESPONSE", job.id).run());
+      }
 
+      if (!slotResult) return;
+
+      const slotMonday = slotResult.matchedMonday;
       console.log(`Slot detected for Job ${job.id} on week ${slotMonday}. Acquiring DO lock...`);
 
       const doId = env.JOB_LOCK.idFromName(job.id);
@@ -475,14 +484,14 @@ export default {
 
       if (!lockRes.ok) {
         console.warn(`DO Lock rejected for Job ${job.id}: Lock already held.`);
-        continue;
+        return;
       }
 
       const secret = requireSecret(env);
       if (!secret) {
         console.error("PII_ENCRYPTION_KEY not configured; releasing lock and aborting.");
         await doStub.fetch("https://lock/release");
-        continue;
+        return;
       }
 
       const decryptedClient: DecryptedClientData = {
@@ -516,26 +525,19 @@ export default {
       if (httpRes.isDryRun) {
         console.log(`[DRY-RUN] Halted prior to any submission for Job ${job.id} in ${httpRes.durationMs}ms.`);
 
-        await env.DB.prepare(
+        bgTasks.push(env.DB.prepare(
           `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
            VALUES (?, ?, 'DRY_RUN_STOPPED', ?, ?)`
-        )
-          .bind(
-            job.id,
-            job.client_id,
-            httpRes.durationMs,
-            JSON.stringify({ week: slotMonday })
-          )
-          .run();
+        ).bind(job.id, job.client_id, httpRes.durationMs, JSON.stringify({ week: slotMonday })).run());
 
         await doStub.fetch("https://lock/release");
 
         if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
-          await sendTelegramNotification(
+          bgTasks.push(sendTelegramNotification(
             env.TELEGRAM_BOT_TOKEN,
             env.TELEGRAM_CHAT_ID,
             `🔍 *[DRY-RUN] Appointment Slot Detected!*\n\nJob ID: \`${job.id}\`\nClient: \`${decryptedClient.firstName} ${decryptedClient.lastName}\`\nCalendar: \`${job.category}\`\nWeek: \`${slotMonday}\`\n\n*Status:* Dry-Run Safety active — booking path still UNVERIFIED (G0).`
-          );
+          ));
         }
       } else if (httpRes.success) {
         console.log(`Booking completed for Job ${job.id}. Ref: ${httpRes.referenceId}`);
@@ -544,29 +546,27 @@ export default {
           `UPDATE jobs SET status = 'BOOKED' WHERE id = ? AND status = 'ACTIVE' AND enabled = 1`
         ).bind(job.id).run();
         await doStub.fetch("https://lock/seal");
-        await env.DB.prepare(
+        bgTasks.push(env.DB.prepare(
           `INSERT INTO daily_metrics (date, bookings_completed) VALUES (DATE('now'), 1)
            ON CONFLICT(date) DO UPDATE SET bookings_completed = bookings_completed + 1`
-        ).run();
+        ).run());
 
         if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
-          await sendTelegramNotification(
+          bgTasks.push(sendTelegramNotification(
             env.TELEGRAM_BOT_TOKEN,
             env.TELEGRAM_CHAT_ID,
             `🎉 *[BOOKED] Appointment Secured!*\n\nClient: \`${decryptedClient.firstName} ${decryptedClient.lastName}\`\nPassport: \`${maskPassport(decryptedClient.passportNumber)}\`\nReference ID: \`${httpRes.referenceId}\`\nExecution Time: \`${httpRes.durationMs}ms\``
-          );
+          ));
         }
       } else {
         console.warn(`[FALLBACK] Direct booking unavailable (${httpRes.errorMessage}). Launching Playwright...`);
 
         const pwRes = await executePlaywrightFallback(env.MYBROWSER, decryptedClient, isDryRun);
 
-        await env.DB.prepare(
+        bgTasks.push(env.DB.prepare(
           `INSERT INTO daily_metrics (date, total_browser_seconds) VALUES (DATE('now'), ?)
            ON CONFLICT(date) DO UPDATE SET total_browser_seconds = total_browser_seconds + ?`
-        )
-          .bind(pwRes.durationSeconds, pwRes.durationSeconds)
-          .run();
+        ).bind(pwRes.durationSeconds, pwRes.durationSeconds).run());
 
         await doStub.fetch("https://lock/release");
 
@@ -575,19 +575,17 @@ export default {
           const backoffUntil = getBackoffUntilISO(checkCount);
           await env.DB.prepare(
             `UPDATE jobs SET status = 'BOOKING_FAILED', backoff_until = ?, last_error_code = ? WHERE id = ?`
-          )
-            .bind(backoffUntil, pwRes.errorMessage || "BOOKING_FAILED", job.id)
-            .run();
+          ).bind(backoffUntil, pwRes.errorMessage || "BOOKING_FAILED", job.id).run();
 
-          await env.DB.prepare(
+          bgTasks.push(env.DB.prepare(
             `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
              VALUES (?, ?, 'BOOKING_FAILED', ?, ?)`
-          )
-            .bind(job.id, job.client_id, Math.round(pwRes.durationSeconds * 1000), JSON.stringify({ error: pwRes.errorMessage }))
-            .run();
+          ).bind(job.id, job.client_id, Math.round(pwRes.durationSeconds * 1000), JSON.stringify({ error: pwRes.errorMessage })).run());
         }
       }
-    }
+    }));
+
+    ctx.waitUntil(Promise.all(bgTasks));
   }
 };
 

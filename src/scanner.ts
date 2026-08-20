@@ -16,7 +16,7 @@ export interface ScanResult {
 
 const PORTAL_BASE = "https://appointment.bmeia.gv.at";
 
-async function getSessionCookie(kv?: KVNamespace): Promise<string> {
+export async function getSessionCookie(kv?: KVNamespace): Promise<string> {
   if (kv) {
     const cached = await kv.get("bmeia_session_cookie");
     if (cached) return cached;
@@ -37,7 +37,7 @@ async function getSessionCookie(kv?: KVNamespace): Promise<string> {
 export async function scanAvailability(
   calendarId: number,
   mondayDateString: string, // Format: M/d/yyyy 12:00:00 AM
-  kv?: KVNamespace
+  cookie: string
 ): Promise<ScanResult> {
   const startTime = Date.now();
 
@@ -50,7 +50,6 @@ export async function scanAvailability(
   params.append("Command", "Next");
 
   try {
-    const cookie = await getSessionCookie(kv);
     const response = await fetch(PORTAL_BASE + "/HomeWeb/Scheduler", {
       method: "POST",
       headers: {

@@ -502,3 +502,551 @@ test("API Endpoint: DELETE /api/clients/:id removes client and writes audit row"
   assert.strictEqual(audit.event_type, "CLIENT_DELETED");
   assert.strictEqual(audit.details, created.clientId);
 });
+
+// ============================================================================
+// EXHAUSTIVE CRUD VALIDATION & EDGE CASE TEST SUITES (Candidate Client Model)
+// ============================================================================
+
+const ALL_REQUIRED_FIELDS = [
+  "firstName", "lastName", "passportNumber", "passportExpiry", "dob",
+  "email", "phone", "category", "familyNameAtBirth", "placeOfBirth", "countryOfBirth",
+  "nationalityAtBirth", "street", "postalCode", "city", "passportIssueDate", "passportIssuingCountry"
+] as const;
+
+// 1. POST /api/clients - Comprehensive Payload & Required Fields Validation
+test("API Endpoint: POST /api/clients rejects non-object & malformed JSON bodies", async () => {
+  const env = createMockEnv();
+
+  // Test malformed JSON string
+  const resMalformed = await worker.fetch(
+    new Request("https://opran-booking.local/api/clients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{ invalid json structure"
+    }),
+    env, {} as any
+  );
+  assert.strictEqual(resMalformed.status, 400);
+  assert.strictEqual((await resMalformed.json() as any).error, "Invalid JSON body");
+
+  // Test JSON Array body
+  const resArray = await worker.fetch(
+    new Request("https://opran-booking.local/api/clients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify([FULL_PAYLOAD])
+    }),
+    env, {} as any
+  );
+  assert.strictEqual(resArray.status, 400);
+  assert.strictEqual((await resArray.json() as any).error, "Invalid JSON body");
+
+  // Test primitive string body
+  const resPrimitive = await worker.fetch(
+    new Request("https://opran-booking.local/api/clients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify("plain string body")
+    }),
+    env, {} as any
+  );
+  assert.strictEqual(resPrimitive.status, 400);
+  assert.strictEqual((await resPrimitive.json() as any).error, "Invalid JSON body");
+});
+
+test("API Endpoint: POST /api/clients validates each of the 17 required fields individually", async () => {
+  for (const field of ALL_REQUIRED_FIELDS) {
+    const env = createMockEnv();
+
+    // a) Missing key altogether
+    const payloadMissing = { ...FULL_PAYLOAD };
+    delete (payloadMissing as any)[field];
+    const resMissing = await worker.fetch(
+      new Request("https://opran-booking.local/api/clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payloadMissing)
+      }),
+      env, {} as any
+    );
+    assert.strictEqual(resMissing.status, 400, `Expected 400 when missing ${field}`);
+    const errMissing = (await resMissing.json() as any).error;
+    assert.strictEqual(errMissing, `Missing required field: ${field}`);
+
+    // b) Empty string ""
+    const payloadEmpty = { ...FULL_PAYLOAD, [field]: "" };
+    const resEmpty = await worker.fetch(
+      new Request("https://opran-booking.local/api/clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payloadEmpty)
+      }),
+      env, {} as any
+    );
+    assert.strictEqual(resEmpty.status, 400, `Expected 400 when ${field} is empty string`);
+    assert.strictEqual((await resEmpty.json() as any).error, `Missing required field: ${field}`);
+
+    // c) Whitespace-only string "   "
+    const payloadSpaces = { ...FULL_PAYLOAD, [field]: "   " };
+    const resSpaces = await worker.fetch(
+      new Request("https://opran-booking.local/api/clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payloadSpaces)
+      }),
+      env, {} as any
+    );
+    assert.strictEqual(resSpaces.status, 400, `Expected 400 when ${field} is whitespace only`);
+    assert.strictEqual((await resSpaces.json() as any).error, `Missing required field: ${field}`);
+
+    // d) Non-string type (number 12345)
+    const payloadNumber = { ...FULL_PAYLOAD, [field]: 12345 };
+    const resNumber = await worker.fetch(
+      new Request("https://opran-booking.local/api/clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payloadNumber)
+      }),
+      env, {} as any
+    );
+    assert.strictEqual(resNumber.status, 400, `Expected 400 when ${field} is a number`);
+    assert.strictEqual((await resNumber.json() as any).error, `Missing required field: ${field}`);
+  }
+});
+
+test("API Endpoint: POST /api/clients applies defaults and maps calendarId correctly", async () => {
+  // Test Category = "Bachelor" -> calendarId = 44281520
+  const env1 = createMockEnv();
+  const payloadBachelor = { ...FULL_PAYLOAD, category: "Bachelor" };
+  delete (payloadBachelor as any).gender;
+  delete (payloadBachelor as any).nationality;
+
+  const res1 = await worker.fetch(
+    new Request("https://opran-booking.local/api/clients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payloadBachelor)
+    }),
+    env1, {} as any
+  );
+  assert.strictEqual(res1.status, 201);
+  const stored1 = env1.__stores.clients[0];
+  assert.strictEqual(stored1.category, "Bachelor");
+  assert.strictEqual(stored1.calendar_id, 44281520);
+  assert.strictEqual(stored1.gender, "Male", "Omitted gender must default to Male");
+  assert.strictEqual(stored1.nationality, "Egyptian", "Omitted nationality must default to Egyptian");
+
+  // Test Category = "Master_PhD" -> calendarId = 44279679
+  const env2 = createMockEnv();
+  const payloadMaster = { ...FULL_PAYLOAD, category: "Master_PhD", gender: "Female", nationality: "Austrian" };
+  const res2 = await worker.fetch(
+    new Request("https://opran-booking.local/api/clients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payloadMaster)
+    }),
+    env2, {} as any
+  );
+  assert.strictEqual(res2.status, 201);
+  const stored2 = env2.__stores.clients[0];
+  assert.strictEqual(stored2.category, "Master_PhD");
+  assert.strictEqual(stored2.calendar_id, 44279679);
+  assert.strictEqual(stored2.gender, "Female");
+  assert.strictEqual(stored2.nationality, "Austrian");
+});
+
+test("API Endpoint: POST /api/clients auto-creates job with correct default scheduling parameters", async () => {
+  const env = createMockEnv();
+  const res = await worker.fetch(
+    new Request("https://opran-booking.local/api/clients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(FULL_PAYLOAD)
+    }),
+    env, {} as any
+  );
+  assert.strictEqual(res.status, 201);
+  const body = await res.json() as any;
+
+  const job = env.__stores.jobs.find((j: any) => j.id === body.jobId);
+  assert.ok(job, "Auto-created job record must exist");
+  assert.strictEqual(job.client_id, body.clientId);
+  assert.strictEqual(job.enabled, 1, "Job must be enabled by default");
+  assert.strictEqual(job.status, "ACTIVE", "Job status must be ACTIVE by default");
+  assert.strictEqual(job.start_date, new Date().toISOString().slice(0, 10));
+  const expectedEndDate = new Date(Date.now() + 8 * 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  assert.strictEqual(job.end_date, expectedEndDate);
+  const days = JSON.parse(job.allowed_days);
+  assert.deepStrictEqual(days, ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]);
+});
+
+// 2. PUT /api/clients/:id - Comprehensive Validation & Passport Special Rule
+test("API Endpoint: PUT /api/clients/:id rejects non-object & malformed JSON bodies", async () => {
+  const env = createMockEnv();
+
+  const resMalformed = await worker.fetch(
+    new Request("https://opran-booking.local/api/clients/client_123", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: "not json"
+    }),
+    env, {} as any
+  );
+  assert.strictEqual(resMalformed.status, 400);
+  assert.strictEqual((await resMalformed.json() as any).error, "Invalid JSON body");
+});
+
+test("API Endpoint: PUT /api/clients/:id passportNumber special rule (empty keeps existing, missing/non-string fails)", async () => {
+  const env = createMockEnv();
+
+  // Create initial client
+  const created = await (await worker.fetch(
+    new Request("https://opran-booking.local/api/clients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(FULL_PAYLOAD)
+    }),
+    env, {} as any
+  )).json() as any;
+
+  const originalPassportEnc = env.__stores.clients[0].passport_number_enc;
+  assert.ok(originalPassportEnc, "Original passport ciphertext must exist");
+
+  // a) Empty string passportNumber "" -> Allowed! Keeps existing ciphertext
+  const resEmptyPassport = await worker.fetch(
+    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...FULL_PAYLOAD, passportNumber: "" })
+    }),
+    env, {} as any
+  );
+  assert.strictEqual(resEmptyPassport.status, 200);
+  assert.strictEqual(env.__stores.clients[0].passport_number_enc, originalPassportEnc);
+
+  // b) Whitespace string passportNumber "   " -> Allowed! Keeps existing ciphertext
+  const resSpacesPassport = await worker.fetch(
+    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...FULL_PAYLOAD, passportNumber: "   " })
+    }),
+    env, {} as any
+  );
+  assert.strictEqual(resSpacesPassport.status, 200);
+  assert.strictEqual(env.__stores.clients[0].passport_number_enc, originalPassportEnc);
+
+  // c) Missing passportNumber key altogether -> Rejected with 400
+  const payloadNoPassport = { ...FULL_PAYLOAD };
+  delete (payloadNoPassport as any).passportNumber;
+  const resMissingPassport = await worker.fetch(
+    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payloadNoPassport)
+    }),
+    env, {} as any
+  );
+  assert.strictEqual(resMissingPassport.status, 400);
+  assert.strictEqual((await resMissingPassport.json() as any).error, "Missing required field: passportNumber");
+
+  // d) Non-string passportNumber (number 99999) -> Rejected with 400
+  const resNumberPassport = await worker.fetch(
+    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...FULL_PAYLOAD, passportNumber: 99999 })
+    }),
+    env, {} as any
+  );
+  assert.strictEqual(resNumberPassport.status, 400);
+  assert.strictEqual((await resNumberPassport.json() as any).error, "Missing required field: passportNumber");
+});
+
+test("API Endpoint: PUT /api/clients/:id validates the other 16 required fields individually", async () => {
+  const other16Fields = ALL_REQUIRED_FIELDS.filter(f => f !== "passportNumber");
+
+  for (const field of other16Fields) {
+    const env = createMockEnv();
+    const created = await (await worker.fetch(
+      new Request("https://opran-booking.local/api/clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(FULL_PAYLOAD)
+      }),
+      env, {} as any
+    )).json() as any;
+
+    // a) Missing field key
+    const payloadMissing = { ...FULL_PAYLOAD };
+    delete (payloadMissing as any)[field];
+    const resMissing = await worker.fetch(
+      new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payloadMissing)
+      }),
+      env, {} as any
+    );
+    assert.strictEqual(resMissing.status, 400, `PUT expected 400 when missing ${field}`);
+    assert.strictEqual((await resMissing.json() as any).error, `Missing required field: ${field}`);
+
+    // b) Empty string
+    const payloadEmpty = { ...FULL_PAYLOAD, [field]: "" };
+    const resEmpty = await worker.fetch(
+      new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payloadEmpty)
+      }),
+      env, {} as any
+    );
+    assert.strictEqual(resEmpty.status, 400, `PUT expected 400 when ${field} is empty string`);
+
+    // c) Whitespace string
+    const payloadSpaces = { ...FULL_PAYLOAD, [field]: "  " };
+    const resSpaces = await worker.fetch(
+      new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payloadSpaces)
+      }),
+      env, {} as any
+    );
+    assert.strictEqual(resSpaces.status, 400, `PUT expected 400 when ${field} is whitespace string`);
+
+    // d) Non-string type
+    const payloadNum = { ...FULL_PAYLOAD, [field]: 888 };
+    const resNum = await worker.fetch(
+      new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payloadNum)
+      }),
+      env, {} as any
+    );
+    assert.strictEqual(resNum.status, 400, `PUT expected 400 when ${field} is number`);
+  }
+});
+
+// 3. DELETE /api/clients/:id - FK Reference Handling & Cascade Assertions
+test("API Endpoint: DELETE /api/clients/:id detaches audit log FK references before removing client", async () => {
+  const env = createMockEnv();
+  const created = await (await worker.fetch(
+    new Request("https://opran-booking.local/api/clients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(FULL_PAYLOAD)
+    }),
+    env, {} as any
+  )).json() as any;
+
+  // Add mock pre-existing audit log for this client
+  env.__stores.logs.push({
+    id: 1,
+    job_id: created.jobId,
+    client_id: created.clientId,
+    event_type: "NO_APPOINTMENT"
+  });
+
+  const res = await worker.fetch(
+    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, { method: "DELETE" }),
+    env, {} as any
+  );
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(env.__stores.clients.length, 0, "Client must be deleted");
+
+  // Verify deletion audit log is created
+  const deletionLog = env.__stores.logs.find((l: any) => l.event_type === "CLIENT_DELETED");
+  assert.ok(deletionLog, "CLIENT_DELETED audit log must be created");
+  assert.strictEqual(deletionLog.details, created.clientId);
+});
+
+// 4. GET /api/clients - Decryption, Masking & Empty String Safety
+test("API Endpoint: GET /api/clients returns correctly decrypted PII fields and masked passport", async () => {
+  const env = createMockEnv();
+  await worker.fetch(
+    new Request("https://opran-booking.local/api/clients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(FULL_PAYLOAD)
+    }),
+    env, {} as any
+  );
+
+  const res = await worker.fetch(new Request("https://opran-booking.local/api/clients"), env, {} as any);
+  assert.strictEqual(res.status, 200);
+
+  const list = await res.json() as any[];
+  assert.strictEqual(list.length, 1);
+  const client = list[0];
+
+  assert.strictEqual(client.firstName, "Mariam");
+  assert.strictEqual(client.lastName, "Farouk");
+  assert.strictEqual(client.familyNameAtBirth, "Farouk");
+  assert.strictEqual(client.placeOfBirth, "Cairo");
+  assert.strictEqual(client.countryOfBirth, "Egypt");
+  assert.strictEqual(client.nationalityAtBirth, "Egyptian");
+  assert.strictEqual(client.street, "15 Tahrir Square");
+  assert.strictEqual(client.postalCode, "11511");
+  assert.strictEqual(client.city, "Cairo");
+  assert.strictEqual(client.passportIssueDate, "2018-06-15");
+  assert.strictEqual(client.passportIssuingCountry, "Egypt");
+  assert.strictEqual(client.gender, "Female");
+  assert.strictEqual(client.dob, "1997-03-21");
+  assert.strictEqual(client.nationality, "Egyptian");
+  assert.strictEqual(client.email, "mariam@example.com");
+  assert.strictEqual(client.phone, "+201111111111");
+  assert.strictEqual(client.passportExpiry, "2031-12-31");
+
+  // Passport masking assertion
+  assert.strictEqual(client.maskedPassport, "A9****32");
+  assert.ok(!JSON.stringify(client).includes("A98765432"), "Raw passport must never be exposed in API output");
+});
+
+// 5. Static UI Verification - Match getAdminHTML DOM IDs with requiredFields & payload keys
+test("Static UI Verification: getAdminHTML DOM IDs match requiredFields and add-client-form payload keys", async () => {
+  const env = createMockEnv();
+  const res = await worker.fetch(new Request("https://opran-booking.local/"), env, {} as any);
+  const html = await res.text();
+
+  // 1. Verify every field in ALL_REQUIRED_FIELDS exists as a DOM element with id="<field>"
+  for (const field of ALL_REQUIRED_FIELDS) {
+    const hasId = html.includes(`id="${field}"`);
+    assert.ok(hasId, `Admin dashboard HTML must contain DOM element id="${field}"`);
+  }
+
+  // 2. Verify onsubmit payload builder extracts every required field from document.getElementById('<field>').value
+  const submitHandlerMatch = html.match(/document\.getElementById\('add-client-form'\)\.onsubmit[\s\S]*?body:\s*JSON\.stringify\(payload\)/);
+  assert.ok(submitHandlerMatch, "onsubmit payload handler must exist in HTML script");
+
+  const handlerCode = submitHandlerMatch[0];
+  for (const field of ALL_REQUIRED_FIELDS) {
+    const extractsField = handlerCode.includes(`${field}: document.getElementById('${field}').value`);
+    assert.ok(extractsField, `onsubmit handler must extract payload key ${field} from document.getElementById('${field}')`);
+  }
+});
+
+// 6. Category Enum Validation & Booking Helper Utilities Test Suite
+test("API Endpoint: POST & PUT /api/clients reject invalid category with 400 Bad Request", async () => {
+  const env = createMockEnv();
+
+  // POST with invalid category
+  const resPost = await worker.fetch(
+    new Request("https://opran-booking.local/api/clients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...FULL_PAYLOAD, category: "Tourist_Visa" })
+    }),
+    env, {} as any
+  );
+  assert.strictEqual(resPost.status, 400);
+  const postErr = (await resPost.json() as any).error;
+  assert.strictEqual(postErr, "Invalid category. Must be 'Bachelor' or 'Master_PhD'");
+
+  // Create valid client
+  const created = await (await worker.fetch(
+    new Request("https://opran-booking.local/api/clients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(FULL_PAYLOAD)
+    }),
+    env, {} as any
+  )).json() as any;
+
+  // PUT with invalid category
+  const resPut = await worker.fetch(
+    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...FULL_PAYLOAD, category: "Work_Permit" })
+    }),
+    env, {} as any
+  );
+  assert.strictEqual(resPut.status, 400);
+  const putErr = (await resPut.json() as any).error;
+  assert.strictEqual(putErr, "Invalid category. Must be 'Bachelor' or 'Master_PhD'");
+});
+
+test("Booking Engine Utility: formatDateForPortal converts YYYY-MM-DD to MM/DD/YYYY format", async () => {
+  const { formatDateForPortal } = await import("../src/booking-http");
+
+  assert.strictEqual(formatDateForPortal("1997-03-21"), "03/21/1997");
+  assert.strictEqual(formatDateForPortal("2018-06-15"), "06/15/2018");
+  assert.strictEqual(formatDateForPortal("2031-12-31"), "12/31/2031");
+
+  // Pass-through for already formatted dates
+  assert.strictEqual(formatDateForPortal("03/21/1997"), "03/21/1997");
+  assert.strictEqual(formatDateForPortal(""), "");
+});
+
+test("Booking Engine Utility: buildStep3DetailsPayload includes all 18 PII fields, consent, and CAPTCHA", async () => {
+  const { buildStep3DetailsPayload } = await import("../src/booking-http");
+
+  const sampleClient = {
+    id: "client_1",
+    firstName: "Amr",
+    lastName: "Abdin",
+    familyNameAtBirth: "Abdin",
+    placeOfBirth: "Cairo",
+    countryOfBirth: "EGYPT",
+    nationalityAtBirth: "Egyptian",
+    street: "sadat sreet",
+    postalCode: "01111",
+    city: "Mansora",
+    passportIssueDate: "2018-06-15",
+    passportIssuingCountry: "Egypt",
+    gender: "Male",
+    dob: "1987-05-03",
+    nationality: "EGYPT",
+    passportNumber: "A22987645",
+    passportExpiry: "2028-06-14",
+    email: "sam.elkomy@yahoo.com",
+    phone: "01005643765",
+    category: "Bachelor",
+    calendarId: 44281520
+  };
+
+  const payloadStr = buildStep3DetailsPayload(sampleClient, "4438", "06/05/2018", "10:10");
+  const params = new URLSearchParams(payloadStr);
+
+  assert.strictEqual(params.get("Office"), "KAIRO");
+  assert.strictEqual(params.get("CalendarId"), "44281520");
+  assert.strictEqual(params.get("LastName"), "Abdin");
+  assert.strictEqual(params.get("FirstName"), "Amr");
+  assert.strictEqual(params.get("DOB"), "05/03/1987");
+  assert.strictEqual(params.get("PassportNumber"), "A22987645");
+  assert.strictEqual(params.get("Gender"), "Male");
+  assert.strictEqual(params.get("Street"), "sadat sreet");
+  assert.strictEqual(params.get("PostalCode"), "01111");
+  assert.strictEqual(params.get("City"), "Mansora");
+  assert.strictEqual(params.get("Country"), "EGYPT");
+  assert.strictEqual(params.get("Phone"), "01005643765");
+  assert.strictEqual(params.get("Email"), "sam.elkomy@yahoo.com");
+  assert.strictEqual(params.get("PassportIssueDate"), "06/15/2018");
+  assert.strictEqual(params.get("Consent"), "true");
+  assert.strictEqual(params.get("CaptchaText"), "4438");
+  assert.strictEqual(params.get("Command"), "Save");
+});
+
+test("Booking Engine Utility: parseBookingConfirmationReference extracts reference numbers from confirmation HTML", async () => {
+  const { parseBookingConfirmationReference } = await import("../src/booking-http");
+
+  const sampleHtml = `
+    <html>
+      <body>
+        <h1>Terminreservierung - تأكيد الحجز</h1>
+        <p>لقد تم عمل الحجز</p>
+        <div>رقم الحجز: GESX-KAIRO</div>
+      </body>
+    </html>
+  `;
+
+  assert.strictEqual(parseBookingConfirmationReference(sampleHtml), "GESX-KAIRO");
+
+  const sampleHtml2 = `<div>Reference ID: GESX-998877</div>`;
+  assert.strictEqual(parseBookingConfirmationReference(sampleHtml2), "GESX-998877");
+
+  assert.strictEqual(parseBookingConfirmationReference("<html>no reference</html>"), null);
+});
+
