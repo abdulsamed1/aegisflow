@@ -325,6 +325,19 @@ test("API Endpoint: admin form has new profile fields and no per-client schedule
   assert.ok(!html.includes("class=\"day-check\""), "Per-client day checkboxes must be removed");
 });
 
+test("Dashboard: premium assets are present", async () => {
+  const env = createMockEnv();
+  const res = await worker.fetch(new Request("https://opran-booking.local/"), env, {} as any);
+  const html = await res.text();
+
+  assert.ok(html.includes("bootstrap.rtl.min.css"), "Bootstrap RTL CSS must be loaded");
+  assert.ok(html.includes("integrity=\"sha384-CfCrinSRH2IR6a4e6fy2q6ioOX7O6Mtm1L9vRvFZ1trBncWmMePhzvafv7oIcWiW"), "SRI hash must pin the Bootstrap file");
+  assert.ok(html.includes("Alexandria"), "Premium Arabic font must be loaded");
+  assert.ok(html.includes("data-bs-theme=\"dark\""), "Bootstrap dark theme must be set");
+  assert.ok(html.includes("skeleton"), "Skeleton loading state must exist");
+  assert.ok(html.includes("empty-state"), "Composed empty state must exist");
+});
+
 test("API Endpoint: PUT /api/clients/:id rejects missing field with 400", async () => {
   const env = createMockEnv();
   const createReq = new Request("https://opran-booking.local/api/clients", {

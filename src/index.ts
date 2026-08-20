@@ -589,43 +589,105 @@ export default {
 
 function getAdminHTML(isDryRun: boolean): string {
   return `<!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="ar" dir="rtl" data-bs-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>نظام أوبيران لأتمتة الحجوزات — لوحة التحكم</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.rtl.min.css" rel="stylesheet" integrity="sha384-CfCrinSRH2IR6a4e6fy2q6ioOX7O6Mtm1L9vRvFZ1trBncWmMePhzvafv7oIcWiW" crossorigin="anonymous">
   <style>
     :root {
-      --bg-surface: #0a0d14;
-      --bg-card: #121722;
-      --bg-card-hover: #171e2c;
-      --border: rgba(255, 255, 255, 0.07);
-      --border-accent: rgba(59, 130, 246, 0.3);
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --success: #10b981;
-      --success-bg: rgba(16, 185, 129, 0.12);
-      --warning: #f59e0b;
-      --warning-bg: rgba(245, 158, 11, 0.12);
-      --danger: #ef4444;
-      --danger-bg: rgba(239, 68, 68, 0.12);
-      --text: #f3f4f6;
-      --text-muted: #9ca3af;
-      --text-dim: #6b7280;
+      --bg-surface: #0b0f1a;
+      --bg-card: #111726;
+      --bg-card-hover: #161e30;
+      --border: rgba(148, 163, 184, 0.14);
+      --border-accent: rgba(74, 125, 255, 0.35);
+      --primary: #4a7dff;
+      --primary-hover: #3b6ae6;
+      --success: #2dd4a7;
+      --success-bg: rgba(45, 212, 167, 0.12);
+      --warning: #eab308;
+      --warning-bg: rgba(234, 179, 8, 0.12);
+      --danger: #f87171;
+      --danger-bg: rgba(248, 113, 113, 0.12);
+      --text: #e8edf6;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --shadow-card: 0 1px 0 rgba(255,255,255,0.04) inset, 0 12px 32px -16px rgba(3,7,18,0.9);
+      --shadow-accent: 0 8px 24px -10px rgba(74, 125, 255, 0.45);
+      /* Bootstrap dark-theme remap so .table/.btn/.alert/.form-control adopt our palette */
+      --bs-body-bg: var(--bg-surface);
+      --bs-body-color: var(--text);
+      --bs-border-color: var(--border);
+      --bs-primary: var(--primary);
+      --bs-primary-rgb: 74, 125, 255;
+      --bs-danger: var(--danger);
+      --bs-danger-rgb: 248, 113, 113;
+      --bs-secondary-color: var(--text-muted);
+      --bs-table-striped-bg: rgba(255, 255, 255, 0.02);
+      --bs-table-hover-bg: var(--bg-card-hover);
+      --bs-modal-bg: var(--bg-card);
+      --bs-modal-border-color: var(--border);
+      --bs-btn-hover-bg: var(--primary-hover);
+      --bs-btn-hover-border-color: var(--primary-hover);
+      --bs-link-color: var(--primary);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: var(--bg-surface);
+      background:
+        radial-gradient(1100px 520px at 85% -10%, rgba(74, 125, 255, 0.10), transparent 60%),
+        radial-gradient(900px 420px at 10% 110%, rgba(45, 212, 167, 0.05), transparent 60%),
+        var(--bg-surface);
       color: var(--text);
-      font-family: 'Cairo', system-ui, -apple-system, sans-serif;
+      font-family: 'Alexandria', system-ui, -apple-system, sans-serif;
       min-height: 100vh;
       padding: 24px;
-      line-height: 1.5;
+      line-height: 1.6;
     }
-    .container { max-width: 1200px; margin: 0 auto; }
+    /* ponytail: one grain overlay instead of image assets — SVG noise, GPU-free */
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 1;
+      opacity: 0.035;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.5'/></svg>");
+    }
+    .container { max-width: 1400px; margin: 0 auto; position: relative; z-index: 2; }
+    .metric-card, .header, .table-card {
+      box-shadow: var(--shadow-card);
+    }
+    .btn, button { transition: transform 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease; }
+    .btn:active { transform: scale(0.98); }
+    .btn:focus-visible, .form-control:focus, .form-select:focus { outline: 2px solid var(--primary); outline-offset: 2px; box-shadow: none; }
+    .form-control, .form-select { background-color: #0d1117; border-color: var(--border); color: var(--text); }
+    .form-control:focus, .form-select:focus { background-color: #0d1117; border-color: var(--primary); }
+    .skeleton {
+      background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-card-hover) 50%, var(--bg-card) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.2s infinite;
+    }
+    @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+    .empty-state { text-align: center; padding: 48px 16px; }
+    .empty-state .icon { font-size: 40px; margin-bottom: 12px; }
+    @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .metric-card { animation: rise 0.4s ease both; }
+    .metric-card:nth-child(2) { animation-delay: 0.06s; }
+    .metric-card:nth-child(3) { animation-delay: 0.12s; }
+    .metric-card:nth-child(4) { animation-delay: 0.18s; }
+    .metric-card.featured {
+      grid-column: span 2;
+      border: 1px solid var(--border-accent);
+      box-shadow: var(--shadow-accent);
+      background: linear-gradient(135deg, rgba(74, 125, 255, 0.08), transparent 60%), var(--bg-card);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; transition: none !important; }
+    }
     .header {
       display: flex;
       justify-content: space-between;
@@ -656,22 +718,6 @@ function getAdminHTML(isDryRun: boolean): string {
       font-size: 12px;
       font-weight: 700;
     }
-    .btn {
-      background: var(--primary);
-      color: white;
-      border: none;
-      padding: 10px 20px;
-      border-radius: 8px;
-      font-weight: 700;
-      cursor: pointer;
-      font-size: 14px;
-      font-family: inherit;
-      transition: all 0.15s ease;
-    }
-    .btn:hover { background: var(--primary-hover); transform: translateY(-1px); }
-    .btn-sm { padding: 6px 14px; font-size: 13px; }
-    .btn-secondary { background: rgba(255,255,255,0.06); color: var(--text); border: 1px solid var(--border); }
-    .btn-secondary:hover { background: rgba(255,255,255,0.12); }
     .grid-metrics {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -686,24 +732,6 @@ function getAdminHTML(isDryRun: boolean): string {
     }
     .metric-label { font-size: 13px; color: var(--text-muted); font-weight: 600; margin-bottom: 8px; }
     .metric-val { font-size: 28px; font-weight: 800; color: #fff; }
-    .table-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      overflow: hidden;
-      margin-bottom: 24px;
-    }
-    .table-header {
-      padding: 16px 24px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .table-header h2 { font-size: 16px; font-weight: 700; }
-    table { width: 100%; border-collapse: collapse; text-align: right; }
-    th, td { padding: 16px 24px; border-bottom: 1px solid var(--border); font-size: 14px; }
-    th { color: var(--text-muted); font-weight: 600; background: rgba(0,0,0,0.15); }
     .mono { font-family: 'JetBrains Mono', monospace; direction: ltr; display: inline-block; }
     .status-pill {
       display: inline-flex;
@@ -727,38 +755,14 @@ function getAdminHTML(isDryRun: boolean): string {
       justify-content: center;
       padding: 16px;
     }
-    .modal {
-      background: #151b26;
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      width: 100%;
-      max-width: 520px;
-      padding: 28px;
-    }
     .table-wrapper {
       width: 100%;
       overflow-x: auto;
       -webkit-overflow-scrolling: touch;
     }
-    .modal-title { font-size: 18px; font-weight: 800; margin-bottom: 20px; }
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     .form-group { margin-bottom: 16px; }
     .form-group label { display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; }
-    .form-group input, .form-group select {
-      width: 100%;
-      padding: 10px 14px;
-      background: #0d1117;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      color: #fff;
-      font-size: 14px;
-      font-family: inherit;
-      min-height: 44px;
-    }
-    .form-group input:focus, .form-group select:focus {
-      outline: none;
-      border-color: var(--primary);
-    }
     @media (max-width: 768px) {
       body { padding: 12px; }
       .header {
@@ -782,8 +786,6 @@ function getAdminHTML(isDryRun: boolean): string {
       .metric-val { font-size: 22px; }
       table { min-width: 580px; }
       th, td { padding: 12px 14px; font-size: 13px; }
-      .form-grid { grid-template-columns: 1fr; gap: 10px; }
-      .modal { padding: 20px; max-height: 92vh; overflow-y: auto; }
     }
     @media (max-width: 480px) {
       .grid-metrics { grid-template-columns: 1fr; }
@@ -798,7 +800,7 @@ function getAdminHTML(isDryRun: boolean): string {
         <div class="badge-fastpath">⚡ محرك الفحص السريع</div>
         ${isDryRun ? '<div class="badge-dryrun">🛡️ وضع الاختبار التجريبي DRY-RUN</div>' : ''}
       </div>
-      <button class="btn" onclick="openModal()">+ إضافة مرشح جديد</button>
+      <button class="btn btn-primary" onclick="openModal()">+ إضافة مرشح جديد</button>
     </header>
 
     <div class="grid-metrics">
@@ -825,7 +827,7 @@ function getAdminHTML(isDryRun: boolean): string {
         <h2>قائمة مرشحي الحجز</h2>
       </div>
       <div class="table-wrapper">
-        <table>
+        <table class="table table-striped table-hover align-middle mb-0">
           <thead>
             <tr>
               <th>اسم المرشح</th>
@@ -847,22 +849,24 @@ function getAdminHTML(isDryRun: boolean): string {
 
   <!-- Modal -->
   <div class="modal-backdrop" id="client-modal">
-    <div class="modal">
-      <div class="modal-title">إضافة مرشح جديد للنظام</div>
+    <div class="modal modal-content" style="max-width: 640px;">
+      <div class="modal-title" id="client-modal-title">إضافة مرشح جديد للنظام</div>
+      <button type="button" class="btn-close" aria-label="إغلاق" onclick="closeModal()"></button>
+      <div class="modal-body">
       <form id="add-client-form">
         <div class="form-grid">
           <div class="form-group">
             <label>الاسم الأول</label>
-            <input type="text" id="firstName" required placeholder="أحمد">
+            <input class="form-control" type="text" id="firstName" required placeholder="أحمد">
           </div>
           <div class="form-group">
             <label>اسم العائلة</label>
-            <input type="text" id="lastName" required placeholder="حسن">
+            <input class="form-control" type="text" id="lastName" required placeholder="حسن">
           </div>
         </div>
         <div class="form-group">
           <label>فئة الحجز</label>
-          <select id="category">
+          <select class="form-select" id="category">
             <option value="Bachelor">بكالوريوس / تعليم جامعي</option>
             <option value="Master_PhD">ماجستير / دكتوراه / منح دراسية</option>
           </select>
@@ -873,65 +877,65 @@ function getAdminHTML(isDryRun: boolean): string {
         <div class="form-grid">
           <div class="form-group">
             <label>اسم العائلة عند الميلاد</label>
-            <input type="text" id="familyNameAtBirth" required>
+            <input class="form-control" type="text" id="familyNameAtBirth" required>
           </div>
           <div class="form-group">
             <label>مكان الميلاد</label>
-            <input type="text" id="placeOfBirth" required placeholder="القاهرة">
+            <input class="form-control" type="text" id="placeOfBirth" required placeholder="القاهرة">
           </div>
         </div>
         <div class="form-grid">
           <div class="form-group">
             <label>بلد الميلاد</label>
-            <input type="text" id="countryOfBirth" required placeholder="مصر">
+            <input class="form-control" type="text" id="countryOfBirth" required placeholder="مصر">
           </div>
           <div class="form-group">
             <label>الجنسية عند الميلاد</label>
-            <input type="text" id="nationalityAtBirth" required placeholder="مصري">
+            <input class="form-control" type="text" id="nationalityAtBirth" required placeholder="مصري">
           </div>
         </div>
         <div class="form-group">
           <label>الشارع / العنوان</label>
-          <input type="text" id="street" required placeholder="١٢ شارع التحرير">
+          <input class="form-control" type="text" id="street" required placeholder="١٢ شارع التحرير">
         </div>
         <div class="form-grid">
           <div class="form-group">
             <label>الرمز البريدي</label>
-            <input type="text" id="postalCode" required placeholder="11511" style="direction: ltr;">
+            <input class="form-control" type="text" id="postalCode" required placeholder="11511" style="direction: ltr;">
           </div>
           <div class="form-group">
             <label>المدينة</label>
-            <input type="text" id="city" required placeholder="القاهرة">
+            <input class="form-control" type="text" id="city" required placeholder="القاهرة">
           </div>
         </div>
         <div class="form-grid">
           <div class="form-group">
             <label>رقم جواز السفر</label>
-            <input type="text" id="passportNumber" required placeholder="A12345678" style="direction: ltr;">
+            <input class="form-control" type="text" id="passportNumber" required placeholder="A12345678" style="direction: ltr;">
           </div>
           <div class="form-group">
             <label>تاريخ انتهاء الجواز</label>
-            <input type="date" id="passportExpiry" required>
+            <input class="form-control" type="date" id="passportExpiry" required>
           </div>
         </div>
         <div class="form-grid">
           <div class="form-group">
             <label>تاريخ إصدار الجواز</label>
-            <input type="date" id="passportIssueDate" required>
+            <input class="form-control" type="date" id="passportIssueDate" required>
           </div>
           <div class="form-group">
             <label>جهة إصدار الجواز</label>
-            <input type="text" id="passportIssuingCountry" required placeholder="مصر">
+            <input class="form-control" type="text" id="passportIssuingCountry" required placeholder="مصر">
           </div>
         </div>
         <div class="form-grid">
           <div class="form-group">
             <label>تاريخ الميلاد</label>
-            <input type="date" id="dob" required>
+            <input class="form-control" type="date" id="dob" required>
           </div>
           <div class="form-group">
             <label>النوع</label>
-            <select id="gender">
+            <select class="form-select" id="gender">
               <option value="Male">ذكر</option>
               <option value="Female">أنثى</option>
             </select>
@@ -940,18 +944,19 @@ function getAdminHTML(isDryRun: boolean): string {
         <div class="form-grid">
           <div class="form-group">
             <label>البريد الإلكتروني</label>
-            <input type="email" id="email" required placeholder="client@example.com" style="direction: ltr;">
+            <input class="form-control" type="email" id="email" required placeholder="client@example.com" style="direction: ltr;">
           </div>
           <div class="form-group">
             <label>رقم الهاتف</label>
-            <input type="tel" id="phone" required placeholder="+201000000000" style="direction: ltr;">
+            <input class="form-control" type="tel" id="phone" required placeholder="+201000000000" style="direction: ltr;">
           </div>
         </div>
-        <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
-          <button type="button" class="btn btn-secondary" onclick="closeModal()">إلغاء</button>
-          <button type="submit" class="btn">حفظ وإنشاء المهمة</button>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-light" onclick="closeModal()">إلغاء</button>
+          <button type="submit" class="btn btn-primary" id="client-submit-btn">حفظ وإنشاء المهمة</button>
         </div>
       </form>
+      </div>
     </div>
   </div>
 
