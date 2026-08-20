@@ -804,7 +804,7 @@ function getAdminHTML(isDryRun: boolean): string {
     </header>
 
     <div class="grid-metrics">
-      <div class="metric-card">
+      <div class="metric-card featured">
         <div class="metric-label">المرشحون النشطون</div>
         <div class="metric-val" id="val-active">-- / 10</div>
       </div>
@@ -838,9 +838,9 @@ function getAdminHTML(isDryRun: boolean): string {
             </tr>
           </thead>
           <tbody id="client-rows">
-            <tr>
-              <td colspan="5" style="text-align: center; color: var(--text-muted);">جاري تحميل بيانات المرشحين...</td>
-            </tr>
+            <tr><td colspan="5"><div class="skeleton" style="height: 16px; border-radius: 4px;"></div></td></tr>
+            <tr><td colspan="5"><div class="skeleton" style="height: 16px; border-radius: 4px;"></div></td></tr>
+            <tr><td colspan="5"><div class="skeleton" style="height: 16px; border-radius: 4px;"></div></td></tr>
           </tbody>
         </table>
       </div>
@@ -853,6 +853,7 @@ function getAdminHTML(isDryRun: boolean): string {
       <div class="modal-title" id="client-modal-title">إضافة مرشح جديد للنظام</div>
       <button type="button" class="btn-close" aria-label="إغلاق" onclick="closeModal()"></button>
       <div class="modal-body">
+        <div class="alert alert-danger d-none" id="client-form-error" role="alert"></div>
       <form id="add-client-form">
         <div class="form-grid">
           <div class="form-group">
@@ -961,11 +962,52 @@ function getAdminHTML(isDryRun: boolean): string {
   </div>
 
   <script>
-    function openModal() { document.getElementById('client-modal').style.display = 'flex'; }
+    let editingClientId = null;
+
+    function openModal() {
+      editingClientId = null;
+      document.getElementById('client-modal-title').textContent = 'إضافة مرشح جديد للنظام';
+      document.getElementById('client-submit-btn').textContent = 'حفظ وإنشاء المهمة';
+      document.getElementById('passportNumber').placeholder = 'A12345678';
+      document.getElementById('add-client-form').reset();
+      document.getElementById('client-form-error').classList.add('d-none');
+      document.getElementById('client-modal').style.display = 'flex';
+    }
     function closeModal() { document.getElementById('client-modal').style.display = 'none'; }
+
+    function openEditModal(clientId) {
+      const c = (window.__clients || []).find(x => x.id === clientId);
+      if (!c) return;
+      editingClientId = clientId;
+      document.getElementById('client-modal-title').textContent = 'تعديل بيانات المرشح';
+      document.getElementById('client-submit-btn').textContent = 'حفظ التعديلات';
+      const v = (id, val) => { const el = document.getElementById(id); if (el) el.value = val ?? ''; };
+      v('firstName', c.firstName); v('lastName', c.lastName); v('category', c.category);
+      v('familyNameAtBirth', c.familyNameAtBirth); v('placeOfBirth', c.placeOfBirth);
+      v('countryOfBirth', c.countryOfBirth); v('nationalityAtBirth', c.nationalityAtBirth);
+      v('street', c.street); v('postalCode', c.postalCode); v('city', c.city);
+      v('passportIssueDate', c.passportIssueDate); v('passportIssuingCountry', c.passportIssuingCountry);
+      v('passportNumber', '');
+      document.getElementById('passportNumber').placeholder = 'اتركه فارغًا للإبقاء على الرقم الحالي';
+      v('passportExpiry', c.passportExpiry); v('dob', c.dob); v('gender', c.gender);
+      v('email', c.email); v('phone', c.phone);
+      document.getElementById('client-form-error').classList.add('d-none');
+      document.getElementById('client-modal').style.display = 'flex';
+    }
 
     async function toggleJob(jobId, action) {
       await fetch('/api/jobs/' + jobId + '/' + action, { method: 'POST' });
+      loadDashboard();
+    }
+
+    async function deleteClient(clientId) {
+      if (!confirm('سيتم حذف المرشح ومهمته نهائيًا من النظام. هل أنت متأكد؟')) return;
+      const res = await fetch('/api/clients/' + clientId, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        alert(err && err.error ? err.error : ('HTTP ' + res.status));
+        return;
+      }
       loadDashboard();
     }
 
@@ -992,14 +1034,16 @@ function getAdminHTML(isDryRun: boolean): string {
         phone: document.getElementById('phone').value,
         nationality: 'Egyptian'
       };
-      const res = await fetch('/api/clients', {
-        method: 'POST',
+      const res = await fetch(editingClientId ? '/api/clients/' + editingClientId : '/api/clients', {
+        method: editingClientId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
-        alert('فشل الحفظ: ' + (err && err.error ? err.error : res.status));
+        const box = document.getElementById('client-form-error');
+        box.textContent = err && err.error ? err.error : ('HTTP ' + res.status);
+        box.classList.remove('d-none');
         return;
       }
       closeModal();
@@ -1017,10 +1061,11 @@ function getAdminHTML(isDryRun: boolean): string {
 
         const clientsRes = await fetch('/api/clients');
         const clients = await clientsRes.json();
+        window.__clients = clients;
         const tbody = document.getElementById('client-rows');
         
         if (clients.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">لا يوجد مرشحون حالياً. انقر على "+ إضافة مرشح جديد" لإنشاء طلب.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="icon">📋</div><div style="font-weight: 700;">لا يوجد مرشحون بعد</div><div style="color: var(--text-muted); font-size: 13px; margin: 6px 0 16px;">أضف أول مرشح ليبدأ النظام بالفحص في نافذة 07:00 – 18:00</div><button class="btn btn-primary btn-sm" onclick="openModal()">+ إضافة مرشح جديد</button></div></td></tr>';
           return;
         }
 
@@ -1036,12 +1081,14 @@ function getAdminHTML(isDryRun: boolean): string {
                   ? '<span class="status-pill status-active">تم الحجز ✅</span>'
                   : \`<span class="status-pill \${c.jobEnabled ? 'status-active' : 'status-paused'}">\${c.jobEnabled ? 'نشط ⚡' : 'متوقف ⏸'}</span>\`}
             </td>
-            <td>
+            <td style="white-space: nowrap;">
               \${c.jobId && c.status !== 'CANCELLED' && c.status !== 'BOOKED' ? \`
-                <button class="btn btn-sm btn-secondary" onclick="toggleJob('\${c.jobId}', '\${c.jobEnabled ? 'pause' : 'activate'}')">
+                <button class="btn btn-sm btn-outline-light" onclick="toggleJob('\${c.jobId}', '\${c.jobEnabled ? 'pause' : 'activate'}')">
                   \${c.jobEnabled ? 'إيقاف مؤقت' : 'تفعيل'}
                 </button>
-                <button class="btn btn-sm btn-secondary" onclick="toggleJob('\${c.jobId}', 'cancel')" style="color: var(--danger);">إلغاء</button>
+                <button class="btn btn-sm btn-outline-light" onclick="openEditModal('\${c.id}')">تعديل</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="deleteClient('\${c.id}')">حذف</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="toggleJob('\${c.jobId}', 'cancel')">إلغاء</button>
               \` : ''}
             </td>
           </tr>
