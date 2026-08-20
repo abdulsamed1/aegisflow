@@ -25,6 +25,15 @@ CREATE TABLE IF NOT EXISTS clients (
     passport_expiry TEXT NOT NULL,
     email_enc TEXT NOT NULL,
     phone_enc TEXT NOT NULL,
+    family_name_at_birth_enc TEXT NOT NULL,
+    place_of_birth TEXT NOT NULL,
+    country_of_birth TEXT NOT NULL,
+    nationality_at_birth TEXT NOT NULL,
+    address_street_enc TEXT NOT NULL,
+    address_postal_code_enc TEXT NOT NULL,
+    address_city_enc TEXT NOT NULL,
+    passport_issue_date TEXT NOT NULL,
+    passport_issuing_country TEXT NOT NULL,
     category TEXT CHECK (category IN ('Bachelor', 'Master_PhD')) NOT NULL,
     calendar_id INTEGER NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -42,8 +51,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     start_date TEXT NOT NULL,
     end_date TEXT NOT NULL,
     allowed_days TEXT NOT NULL,
-    preferred_time_start TEXT DEFAULT '08:00',
-    preferred_time_end TEXT DEFAULT '16:00',
+    preferred_time_start TEXT DEFAULT '07:00',
+    preferred_time_end TEXT DEFAULT '18:00',
     check_count INTEGER DEFAULT 0,
     last_check TIMESTAMP,
     last_error_code TEXT,
@@ -125,6 +134,9 @@ test("Integration: client creation encrypts PII at rest and returns masked data 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       firstName: "Ahmed", lastName: "Hassan", category: "Bachelor",
+      familyNameAtBirth: "Hassan", placeOfBirth: "Cairo", countryOfBirth: "Egypt",
+      nationalityAtBirth: "Egyptian", street: "15 Tahrir Square", postalCode: "11511",
+      city: "Cairo", passportIssueDate: "2018-06-15", passportIssuingCountry: "Egypt",
       passportNumber: "A12345678", passportExpiry: "2030-01-01",
       dob: "1990-05-05", gender: "Male", nationality: "Egyptian",
       email: "ahmed@example.com", phone: "+201000000000"
@@ -141,6 +153,12 @@ test("Integration: client creation encrypts PII at rest and returns masked data 
   assert.notStrictEqual(clientRow.passport_number_enc, "A12345678", "DB must store ciphertext, never plaintext passport");
   assert.notStrictEqual(clientRow.first_name_enc, "Ahmed", "DB must store ciphertext first name");
   assert.notStrictEqual(clientRow.email_enc, "ahmed@example.com", "DB must store ciphertext email");
+  assert.notStrictEqual(clientRow.family_name_at_birth_enc, "Hassan", "Family name at birth must be encrypted");
+  assert.notStrictEqual(clientRow.address_street_enc, "15 Tahrir Square", "Street must be encrypted");
+  assert.notStrictEqual(clientRow.address_postal_code_enc, "11511", "Postal code must be encrypted");
+  assert.notStrictEqual(clientRow.address_city_enc, "Cairo", "City must be encrypted");
+  assert.strictEqual(clientRow.place_of_birth, "Cairo", "Place of birth stays plaintext per field-class convention");
+  assert.strictEqual(clientRow.passport_issue_date, "2018-06-15", "Passport issue date stays plaintext");
   assert.strictEqual(clientRow.category, "Bachelor");
   assert.strictEqual(clientRow.calendar_id, 44281520, "Bachelor must map to calendar 44281520");
 
@@ -148,6 +166,10 @@ test("Integration: client creation encrypts PII at rest and returns masked data 
   assert.ok(jobRow, "Job row must be auto-created");
   assert.strictEqual(jobRow.enabled, 1);
   assert.strictEqual(jobRow.status, "ACTIVE");
+  assert.strictEqual(jobRow.preferred_time_start, "07:00", "Legacy column must carry the global window start");
+  assert.strictEqual(jobRow.preferred_time_end, "18:00", "Legacy column must carry the global window end");
+  const allowedDays = JSON.parse(jobRow.allowed_days);
+  assert.strictEqual(allowedDays.length, 7, "Legacy allowed_days must carry all 7 days");
 
   const listRes = await mf.dispatchFetch("https://opran.local/api/clients");
   assert.strictEqual(listRes.status, 200);
@@ -155,6 +177,9 @@ test("Integration: client creation encrypts PII at rest and returns masked data 
   assert.strictEqual(clients.length, 1);
   assert.strictEqual(clients[0].firstName, "Ahmed", "GET must decrypt first name");
   assert.strictEqual(clients[0].lastName, "Hassan", "GET must decrypt last name");
+  assert.strictEqual(clients[0].familyNameAtBirth, "Hassan", "GET must decrypt family name at birth");
+  assert.strictEqual(clients[0].street, "15 Tahrir Square", "GET must decrypt street");
+  assert.strictEqual(clients[0].placeOfBirth, "Cairo", "GET must return plaintext-class field");
   assert.strictEqual(clients[0].maskedPassport, "A1****78", "GET must return masked passport");
   assert.ok(!JSON.stringify(clients).includes("A12345678"), "Raw passport must never appear in API output");
 });
@@ -179,22 +204,16 @@ test("Integration: scheduler query returns oldest-outstanding jobs, excludes bac
   const mf = await startWorker();
   const db = await mf.getD1Database("DB");
 
-  await db.prepare(
-    `INSERT INTO clients (id, first_name_enc, last_name_enc, gender, dob, nationality, passport_number_enc, passport_expiry, email_enc, phone_enc, category, calendar_id)
-     VALUES ('c1','x','x','Male','1990-01-01','Egyptian','x','2030-01-01','x','x','Bachelor',44281520)`
-  ).run();
-  await db.prepare(
-    `INSERT INTO clients (id, first_name_enc, last_name_enc, gender, dob, nationality, passport_number_enc, passport_expiry, email_enc, phone_enc, category, calendar_id)
-     VALUES ('c2','x','x','Male','1990-01-01','Egyptian','x','2030-01-01','x','x','Bachelor',44281520)`
-  ).run();
-  await db.prepare(
-    `INSERT INTO clients (id, first_name_enc, last_name_enc, gender, dob, nationality, passport_number_enc, passport_expiry, email_enc, phone_enc, category, calendar_id)
-     VALUES ('c3','x','x','Male','1990-01-01','Egyptian','x','2030-01-01','x','x','Bachelor',44281520)`
-  ).run();
-  await db.prepare(
-    `INSERT INTO clients (id, first_name_enc, last_name_enc, gender, dob, nationality, passport_number_enc, passport_expiry, email_enc, phone_enc, category, calendar_id)
-     VALUES ('c4','x','x','Male','1990-01-01','Egyptian','x','2030-01-01','x','x','Bachelor',44281520)`
-  ).run();
+  const insertClient = (id: string) =>
+    db.prepare(
+      `INSERT INTO clients (id, first_name_enc, last_name_enc, gender, dob, nationality, passport_number_enc, passport_expiry, email_enc, phone_enc, family_name_at_birth_enc, place_of_birth, country_of_birth, nationality_at_birth, address_street_enc, address_postal_code_enc, address_city_enc, passport_issue_date, passport_issuing_country, category, calendar_id)
+       VALUES (?, 'x', 'x', 'Male', '1990-01-01', 'Egyptian', 'x', '2030-01-01', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', '2018-01-01', 'Egypt', 'Bachelor', 44281520)`
+    ).bind(id).run();
+
+  await insertClient("c1");
+  await insertClient("c2");
+  await insertClient("c3");
+  await insertClient("c4");
 
   const insertJob = (id: string, clientId: string, lastCheck: string, backoffUntil: string | null) =>
     db.prepare(
@@ -213,6 +232,10 @@ test("Integration: scheduler query returns oldest-outstanding jobs, excludes bac
     results.map((r: any) => r.id),
     ["j_oldest", "j_middle", "j_newest"],
     "Oldest-outstanding must win; backoff job (oldest but cooling down) must be excluded"
+  );
+  assert.ok(
+    !("start_date" in results[0]) && !("end_date" in results[0]),
+    "Scheduler must never read legacy per-client date columns (D8/AD-11)"
   );
 });
 

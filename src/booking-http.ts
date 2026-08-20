@@ -9,6 +9,15 @@ export interface DecryptedClientData {
   id: string;
   firstName: string;
   lastName: string;
+  familyNameAtBirth: string;
+  placeOfBirth: string;
+  countryOfBirth: string;
+  nationalityAtBirth: string;
+  street: string;
+  postalCode: string;
+  city: string;
+  passportIssueDate: string;
+  passportIssuingCountry: string;
   gender: string;
   dob: string;
   nationality: string;
