@@ -16,10 +16,20 @@ export interface ScanResult {
 
 const PORTAL_BASE = "https://appointment.bmeia.gv.at";
 
+let inMemoryCookieCache: { value: string; expiresAt: number } | null = null;
+
 export async function getSessionCookie(kv?: KVNamespace): Promise<string> {
+  const now = Date.now();
+  if (inMemoryCookieCache && inMemoryCookieCache.expiresAt > now) {
+    return inMemoryCookieCache.value;
+  }
+
   if (kv) {
     const cached = await kv.get("bmeia_session_cookie");
-    if (cached) return cached;
+    if (cached) {
+      inMemoryCookieCache = { value: cached, expiresAt: now + 600000 }; // 10 min memory cache
+      return cached;
+    }
   }
 
   const warm = await fetch(PORTAL_BASE + "/", { method: "GET", redirect: "manual" });
@@ -28,8 +38,11 @@ export async function getSessionCookie(kv?: KVNamespace): Promise<string> {
   const sessionId = setCookie.match(/ASP\.NET_SessionId=[^;,]+/i)?.[0];
   const cookie = sessionId ? `${aspx}; ${sessionId}` : aspx;
 
-  if (kv && cookie) {
-    await kv.put("bmeia_session_cookie", cookie, { expirationTtl: 1800 });
+  if (cookie) {
+    inMemoryCookieCache = { value: cookie, expiresAt: now + 600000 };
+    if (kv) {
+      await kv.put("bmeia_session_cookie", cookie, { expirationTtl: 1800 });
+    }
   }
   return cookie;
 }
@@ -41,13 +54,7 @@ export async function scanAvailability(
 ): Promise<ScanResult> {
   const startTime = Date.now();
 
-  const params = new URLSearchParams();
-  params.append("Language", "en");
-  params.append("Office", "KAIRO");
-  params.append("CalendarId", calendarId.toString());
-  params.append("PersonCount", "1");
-  params.append("Monday", mondayDateString);
-  params.append("Command", "Next");
+  const bodyString = `Language=en&Office=KAIRO&CalendarId=${calendarId}&PersonCount=1&Monday=${encodeURIComponent(mondayDateString)}&Command=Next`;
 
   try {
     const response = await fetch(PORTAL_BASE + "/HomeWeb/Scheduler", {
@@ -57,7 +64,7 @@ export async function scanAvailability(
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
         "Cookie": cookie
       },
-      body: params.toString()
+      body: bodyString
     });
 
     const durationMs = Date.now() - startTime;
