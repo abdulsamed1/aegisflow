@@ -3,7 +3,12 @@
  * Conforms to Architectural Invariant AD-3
  */
 
+const keyCache = new Map<string, CryptoKey>();
+
 async function getKey(secret: string): Promise<CryptoKey> {
+  const cached = keyCache.get(secret);
+  if (cached) return cached;
+
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
@@ -12,7 +17,7 @@ async function getKey(secret: string): Promise<CryptoKey> {
     false,
     ["deriveKey"]
   );
-  return crypto.subtle.deriveKey(
+  const derived = await crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
       salt: enc.encode("opran-booking-salt"),
@@ -24,6 +29,9 @@ async function getKey(secret: string): Promise<CryptoKey> {
     false,
     ["encrypt", "decrypt"]
   );
+
+  keyCache.set(secret, derived);
+  return derived;
 }
 
 export async function encryptPII(plaintext: string, secret: string): Promise<string> {

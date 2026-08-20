@@ -128,10 +128,12 @@
 - **I want a** premium navy dashboard displaying active jobs, status badges, metrics, and modal forms,  
 - **So that** I can monitor and control all automation jobs effortlessly.
 
-> **2026-08-20 amendment:** the shipped dashboard is the premium redesign (`docs/implementation-artifacts/spec-spa-crud-premium-ui.md`) — off-black navy palette, Bootstrap 5.3 RTL (CSS-only, SRI-pinned), Alexandria typeface, skeleton/empty/inline-error states — superseding the earlier "dark glassmorphism" direction.
+> **2026-08-20 amendment (superseded same day):** the shipped dashboard was the premium redesign (`docs/implementation-artifacts/spec-spa-crud-premium-ui.md`, removed with the artifacts dir) — off-black navy palette, Bootstrap 5.3 RTL (CSS-only, SRI-pinned), Alexandria typeface, skeleton/empty/inline-error states — superseding the earlier "dark glassmorphism" direction. Superseded by the v6 Paper Dossier flip (see below).
+>
+> **2026-08-20 amendment (current):** the shipped dashboard is **v6 Paper Dossier** (light editorial, `docs/ux-spec.md`, code: `src/index.ts` `getAdminHTML`) — parchment canvas, paper cards, burnt-red accent, **hand-rolled CSS, no Bootstrap, no framework stylesheet**, Alexandria the only font request, same DOM/JS. Per operator request the same day: the header brand group and footer system line were removed (header holds only the `+ إضافة مرشح جديد` CTA), and the live Cairo-time metric card (`window-tag`/`val-cairo`) was removed — the global 07:00–18:00 window still governs scheduling server-side.
 
 #### Acceptance Criteria:
-1. Top bar displays Cairo Time clock, Dry-Run status banner, and resource budget gauge.
+1. Header hosts the single primary CTA (`+ إضافة مرشح جديد`); the v1 budget gauge, Cairo clock, and DRY-RUN status banner are **not shipped/removed** — budget is an NFR surfaced via Telegram (FR-9), the global Cairo window is server-side, and DRY-RUN state lives in `wrangler.toml` (`DRY_RUN` var) and Telegram alerts.
 2. Client table lists all candidates with status pills and action toggles (Activate/Pause/Cancel — cancel added per D8, 2026-08-20; **Edit/Delete added per the CRUD story, same day**).
 3. Responsive SPA loads in under 1 second from Cloudflare Workers Static Assets.
 
