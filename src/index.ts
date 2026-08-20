@@ -604,34 +604,37 @@ function getAdminHTML(isDryRun: boolean): string {
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.rtl.min.css" rel="stylesheet" integrity="sha384-CfCrinSRH2IR6a4e6fy2q6ioOX7O6Mtm1L9vRvFZ1trBncWmMePhzvafv7oIcWiW" crossorigin="anonymous">
   <style>
     :root {
-      --bg-surface: #0b0f1a;
-      --bg-card: #111726;
-      --bg-card-hover: #161e30;
-      --border: rgba(148, 163, 184, 0.14);
-      --border-accent: rgba(74, 125, 255, 0.35);
-      --primary: #4a7dff;
-      --primary-hover: #3b6ae6;
-      --success: #2dd4a7;
-      --success-bg: rgba(45, 212, 167, 0.12);
-      --warning: #eab308;
-      --warning-bg: rgba(234, 179, 8, 0.12);
-      --danger: #f87171;
-      --danger-bg: rgba(248, 113, 113, 0.12);
-      --text: #e8edf6;
-      --text-muted: #94a3b8;
-      --text-dim: #64748b;
-      --shadow-card: 0 1px 0 rgba(255,255,255,0.04) inset, 0 12px 32px -16px rgba(3,7,18,0.9);
-      --shadow-accent: 0 8px 24px -10px rgba(74, 125, 255, 0.45);
+      /* Sentry night family — violet-midnight canvas, violet hairlines (inspiration: Sentry design.md) */
+      --bg-surface: #150f23;
+      --bg-card: #1f1633;
+      --bg-card-hover: #261d45;
+      --border: rgba(214, 205, 255, 0.10);
+      --border-accent: rgba(194, 239, 78, 0.35);
+      /* one loud accent: electric lime — reserved for CTAs, focus, active pills */
+      --primary: #c2ef4e;
+      --primary-hover: #d3f57a;
+      --primary-ink: #13101f;
+      --success: #22c55e;
+      --success-bg: rgba(34, 197, 94, 0.14);
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.14);
+      --danger: #ef4444;
+      --danger-bg: rgba(239, 68, 68, 0.14);
+      --text: #f3eefc;
+      --text-muted: #a89fce;
+      --text-dim: #6d6590;
+      --shadow-card: 0 1px 0 rgba(255,255,255,0.04) inset, 0 12px 32px -16px rgba(8,5,18,0.85);
+      --shadow-accent: 0 0 24px -8px rgba(194,239,78,0.4);
       /* Bootstrap dark-theme remap so .table/.btn/.alert/.form-control adopt our palette */
       --bs-body-bg: var(--bg-surface);
       --bs-body-color: var(--text);
       --bs-border-color: var(--border);
       --bs-primary: var(--primary);
-      --bs-primary-rgb: 74, 125, 255;
+      --bs-primary-rgb: 194, 239, 78;
       --bs-danger: var(--danger);
-      --bs-danger-rgb: 248, 113, 113;
+      --bs-danger-rgb: 239, 68, 68;
       --bs-secondary-color: var(--text-muted);
-      --bs-table-striped-bg: rgba(255, 255, 255, 0.02);
+      --bs-table-striped-bg: rgba(194, 239, 78, 0.025);
       --bs-table-hover-bg: var(--bg-card-hover);
       --bs-modal-bg: var(--bg-card);
       --bs-modal-border-color: var(--border);
@@ -642,8 +645,8 @@ function getAdminHTML(isDryRun: boolean): string {
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       background:
-        radial-gradient(1100px 520px at 85% -10%, rgba(74, 125, 255, 0.10), transparent 60%),
-        radial-gradient(900px 420px at 10% 110%, rgba(45, 212, 167, 0.05), transparent 60%),
+        radial-gradient(1100px 520px at 85% -10%, rgba(194, 239, 78, 0.07), transparent 60%),
+        radial-gradient(900px 420px at 10% 110%, rgba(122, 92, 255, 0.10), transparent 60%),
         var(--bg-surface);
       color: var(--text);
       font-family: 'Alexandria', system-ui, -apple-system, sans-serif;
@@ -668,8 +671,14 @@ function getAdminHTML(isDryRun: boolean): string {
     .btn, button { transition: transform 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease; }
     .btn:active { transform: scale(0.98); }
     .btn:focus-visible, .form-control:focus, .form-select:focus { outline: 2px solid var(--primary); outline-offset: 2px; box-shadow: none; }
-    .form-control, .form-select { background-color: #0d1117; border-color: var(--border); color: var(--text); }
-    .form-control:focus, .form-select:focus { background-color: #0d1117; border-color: var(--primary); }
+    .form-control, .form-select { background-color: #191230; border-color: var(--border); color: var(--text); }
+    .form-control:focus, .form-select:focus { background-color: #191230; border-color: var(--primary); }
+    .btn-primary, .btn-primary:hover, .btn-primary:focus {
+      color: var(--primary-ink) !important;
+      background-color: var(--primary);
+      border-color: var(--primary);
+    }
+    .btn-primary:hover { background-color: var(--primary-hover); border-color: var(--primary-hover); }
     .skeleton {
       background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-card-hover) 50%, var(--bg-card) 75%);
       background-size: 200% 100%;
@@ -687,7 +696,7 @@ function getAdminHTML(isDryRun: boolean): string {
       grid-column: span 2;
       border: 1px solid var(--border-accent);
       box-shadow: var(--shadow-accent);
-      background: linear-gradient(135deg, rgba(74, 125, 255, 0.08), transparent 60%), var(--bg-card);
+      background: linear-gradient(135deg, rgba(194, 239, 78, 0.07), transparent 60%), var(--bg-card);
     }
     @media (prefers-reduced-motion: reduce) {
       * { animation: none !important; transition: none !important; }
@@ -705,9 +714,9 @@ function getAdminHTML(isDryRun: boolean): string {
     .brand-group { display: flex; align-items: center; gap: 16px; }
     .brand-title { font-size: 20px; font-weight: 800; color: #fff; letter-spacing: -0.3px; }
     .badge-fastpath {
-      background: rgba(16, 185, 129, 0.15);
-      color: var(--success);
-      border: 1px solid rgba(16, 185, 129, 0.25);
+      background: rgba(194, 239, 78, 0.12);
+      color: var(--primary);
+      border: 1px solid rgba(194, 239, 78, 0.25);
       padding: 4px 12px;
       border-radius: 6px;
       font-size: 12px;
@@ -734,7 +743,7 @@ function getAdminHTML(isDryRun: boolean): string {
       border-radius: 12px;
       padding: 20px;
     }
-    .metric-label { font-size: 13px; color: var(--text-muted); font-weight: 600; margin-bottom: 8px; }
+    .metric-label { font-size: 11px; color: var(--text-muted); font-weight: 600; letter-spacing: 0.04em; margin-bottom: 8px; }
     .metric-val { font-size: 28px; font-weight: 800; color: #fff; }
     .mono { font-family: 'JetBrains Mono', monospace; direction: ltr; display: inline-block; }
     .status-pill {
@@ -746,13 +755,13 @@ function getAdminHTML(isDryRun: boolean): string {
       font-size: 12px;
       font-weight: 700;
     }
-    .status-active { background: var(--success-bg); color: var(--success); }
+    .status-active { background: rgba(194, 239, 78, 0.12); color: var(--primary); }
     .status-paused { background: var(--warning-bg); color: var(--warning); }
     .modal-backdrop {
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.75);
+      background: rgba(8, 5, 18, 0.78);
       backdrop-filter: blur(6px);
       z-index: 100;
       align-items: center;
@@ -876,7 +885,7 @@ function getAdminHTML(isDryRun: boolean): string {
             <option value="Master_PhD">ماجستير / دكتوراه / منح دراسية</option>
           </select>
         </div>
-        <div class="form-group" style="background: rgba(59,130,246,0.08); border: 1px solid var(--border-accent); border-radius: 8px; padding: 12px 14px; font-size: 13px; color: var(--text-muted);">
+        <div class="form-group" style="background: rgba(122,92,255,0.08); border: 1px solid var(--border-accent); border-radius: 8px; padding: 12px 14px; font-size: 13px; color: var(--text-muted);">
           ⏰ قواعد المواعيد موحّدة لجميع الطلبات: الفحص يوميًا من 07:00 حتى 18:00 بتوقيت القاهرة، والطلب يبقى نشطًا حتى إتمام الحجز أو الإلغاء.
         </div>
         <div class="form-grid">
