@@ -24,6 +24,12 @@ function createMockEnv() {
           if (query.includes("daily_metrics")) {
             return metricsStore as T;
           }
+          if (query.includes("FROM clients WHERE id = ?")) {
+            return (clientsStore.find((c: any) => c.id === boundArgs[0]) || null) as T;
+          }
+          if (query.includes("FROM jobs WHERE client_id = ?")) {
+            return (jobsStore.find((j: any) => j.client_id === boundArgs[0]) || null) as T;
+          }
           return null;
         },
         all: async () => {
@@ -85,6 +91,29 @@ function createMockEnv() {
           if (query.includes("UPDATE jobs SET enabled = 0, status = 'CANCELLED'")) {
             const job = jobsStore.find(j => j.id === boundArgs[0]);
             if (job) { job.enabled = 0; job.status = "CANCELLED"; }
+          }
+          if (query.includes("UPDATE clients SET")) {
+            const idx = clientsStore.findIndex((c: any) => c.id === boundArgs[20]);
+            if (idx >= 0) {
+              clientsStore[idx] = {
+                ...clientsStore[idx],
+                first_name_enc: boundArgs[0], last_name_enc: boundArgs[1], gender: boundArgs[2],
+                dob: boundArgs[3], nationality: boundArgs[4], passport_number_enc: boundArgs[5],
+                passport_expiry: boundArgs[6], email_enc: boundArgs[7], phone_enc: boundArgs[8],
+                family_name_at_birth_enc: boundArgs[9], place_of_birth: boundArgs[10],
+                country_of_birth: boundArgs[11], nationality_at_birth: boundArgs[12],
+                address_street_enc: boundArgs[13], address_postal_code_enc: boundArgs[14],
+                address_city_enc: boundArgs[15], passport_issue_date: boundArgs[16],
+                passport_issuing_country: boundArgs[17], category: boundArgs[18], calendar_id: boundArgs[19]
+              };
+            }
+          }
+          if (query.includes("INSERT INTO audit_logs")) {
+            logsStore.push({ event_type: "CLIENT_DELETED", details: boundArgs[0] });
+          }
+          if (query.includes("DELETE FROM clients")) {
+            const idx = clientsStore.findIndex((c: any) => c.id === boundArgs[0]);
+            if (idx >= 0) clientsStore.splice(idx, 1);
           }
           return { success: true };
         }
@@ -278,4 +307,88 @@ test("API Endpoint: admin form has new profile fields and no per-client schedule
   assert.ok(!html.includes("id=\"endDate\""), "Per-client end date control must be removed");
   assert.ok(!html.includes("id=\"timeStart\""), "Per-client time controls must be removed");
   assert.ok(!html.includes("class=\"day-check\""), "Per-client day checkboxes must be removed");
+});
+
+test("API Endpoint: PUT /api/clients/:id rejects missing field with 400", async () => {
+  const env = createMockEnv();
+  const createReq = new Request("https://opran-booking.local/api/clients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(FULL_PAYLOAD)
+  });
+  const created = await (await worker.fetch(createReq, env, {} as any)).json() as any;
+
+  const payload = { ...FULL_PAYLOAD };
+  delete (payload as any).city;
+  const res = await worker.fetch(
+    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }),
+    env,
+    {} as any
+  );
+  assert.strictEqual(res.status, 400);
+  const body = await res.json() as any;
+  assert.ok(body.error.includes("city"), `Expected field name in error, got: ${body.error}`);
+});
+
+test("API Endpoint: PUT /api/clients/:id rejects non-string field with 400", async () => {
+  const env = createMockEnv();
+  const res = await worker.fetch(
+    new Request("https://opran-booking.local/api/clients/client_x", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...FULL_PAYLOAD, street: 12345 })
+    }),
+    env,
+    {} as any
+  );
+  assert.strictEqual(res.status, 400);
+});
+
+test("API Endpoint: PUT /api/clients/:id rejects unknown id with 404", async () => {
+  const env = createMockEnv();
+  const res = await worker.fetch(
+    new Request("https://opran-booking.local/api/clients/client_unknown", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(FULL_PAYLOAD)
+    }),
+    env,
+    {} as any
+  );
+  assert.strictEqual(res.status, 404);
+  const body = await res.json() as any;
+  assert.match(body.error, /not found/i);
+});
+
+test("API Endpoint: PUT /api/clients/:id updates stored row and keeps empty passport ciphertext", async () => {
+  const env = createMockEnv();
+  const created = await (await worker.fetch(new Request("https://opran-booking.local/api/clients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(FULL_PAYLOAD)
+  }), env, {} as any)).json() as any;
+
+  const beforePassport = env.__stores.clients[0].passport_number_enc;
+  assert.ok(beforePassport, "Store must hold ciphertext after POST");
+
+  const res = await worker.fetch(
+    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...FULL_PAYLOAD, firstName: "Salma", category: "Bachelor", passportNumber: "" })
+    }),
+    env,
+    {} as any
+  );
+  assert.strictEqual(res.status, 200);
+
+  const stored = env.__stores.clients[0];
+  assert.notStrictEqual(stored.first_name_enc, "Mariam", "First name must be re-encrypted");
+  assert.strictEqual(stored.category, "Bachelor", "Category must update");
+  assert.strictEqual(stored.calendar_id, 44281520, "calendar_id must follow the new category");
+  assert.strictEqual(stored.passport_number_enc, beforePassport, "Empty passport must keep existing ciphertext");
 });
