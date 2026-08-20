@@ -1,8 +1,8 @@
 # UX & UI Specification — Single Operator Admin Panel (opran-booking)
 
-> **Status:** FINAL — amended 2026-08-20 to v3: **Sentry night + electric lime** (visual source of truth: `docs/implementation-artifacts/spec-spa-crud-premium-ui.md`; design-md inspiration: Sentry via `awesome-design-md` + `designmd.co` + `designmd.app`; code source of truth: `src/index.ts` `getAdminHTML`)
+> **Status:** FINAL — amended 2026-08-20 to v4: **hand-rolled design system, zero third-party UI CSS** (visual source of truth: `docs/implementation-artifacts/spec-spa-crud-premium-ui.md`; design-md inspiration: Sentry via `awesome-design-md` + `designmd.co` + `designmd.app`; code source of truth: `src/index.ts` `getAdminHTML`)
 > **Target Device:** Desktop / Tablet responsive (container max-width 1400px; collapses at 768px and 480px)
-> **Visual Direction:** Violet-midnight operational dashboard — purple-night surfaces, violet hairlines, ONE loud electric-lime accent, Alexandria typeface, Bootstrap 5.3 RTL (CSS-only, SRI-pinned). No glass, no gradient stacks, one accent color.
+> **Visual Direction:** Violet-midnight operational dashboard — purple-night surfaces, violet hairlines, ONE loud electric-lime accent, Alexandria typeface, **hand-rolled CSS only — no Bootstrap, no framework CSS, one file, one request**. No glass, no gradient stacks, one accent color.
 
 ---
 
@@ -13,6 +13,7 @@
 | 2026-08-19 | v1: glassmorphism direction, Cairo font, tabbed layout (Clients / Audit Log / System Config), 12-state badge matrix, toasts, budget gauge | Original design spec |
 | 2026-08-20 | v2: **premium redesign shipped** — navy token set, Alexandria typography, Bootstrap RTL CSS, single-view layout (no tabs), skeleton/empty/inline-error states, Edit/Delete CRUD actions, shared add/edit modal with keep-passport flow | Operator + redesign story (`spec-spa-crud-premium-ui.md`); v1-only surfaces (Audit Log tab, System Config tab, toasts, budget gauge, filter pills) are **explicitly not shipped** and out of scope — see §8 |
 | 2026-08-20 | v3: **Sentry night + electric lime** — violet-midnight canvas family, one loud lime accent reserved for CTAs/focus/active pills, violet hairlines replace navy, micro-cap metric labels, lime glow on the featured card | Operator redesign decision; inspired by the **Sentry** design.md (discovered via `awesome-design-md`, `designmd.co`, `designmd.app` — purple night `#150f23`/`#1f1633`, hairline `#362d59`, accent `#c2ef4e`) |
+| 2026-08-20 | v4: **full hand-rolled redesign — Bootstrap dropped** — custom CSS replaced the Bootstrap RTL CDN entirely (no framework stylesheet, no JS bundle); custom form controls (focus ring in lime, dark selects with SVG chevron), custom modal (raised surface `#241c42`, blur backdrop), brand mark tile, live window pulse dot, footer system line, 14px card radii; same DOM IDs and classes used by the loader JS, so the backend script block is untouched | Operator request: full UI/UX rechange, keep Arabic, fast performance (one fewer 200KB CDN request), keep Sentry-night direction |
 
 The v2 changes supersede v1. Anything in v1 not listed in v2 does not exist in the product and must not be re-introduced without a new decision.
 
@@ -20,7 +21,7 @@ The v2 changes supersede v1. Anything in v1 not listed in v2 does not exist in t
 
 ## 1. Design System
 
-### 1.1 Color Palette (shipped tokens — `src/index.ts` `:root`, v3 Sentry night)
+### 1.1 Color Palette (shipped tokens — `src/index.ts` `:root`, v4 Sentry night)
 
 ```css
 :root {
@@ -28,13 +29,15 @@ The v2 changes supersede v1. Anything in v1 not listed in v2 does not exist in t
   --bg-surface: #150f23;
   --bg-card: #1f1633;
   --bg-card-hover: #261d45;
-  --border: rgba(214, 205, 255, 0.10);      /* violet hairline */
+  --bg-raised: #241c42;                         /* v4: modal/select surfaces one step above cards */
+  --border: rgba(214, 205, 255, 0.10);          /* violet hairline */
+  --border-strong: rgba(214, 205, 255, 0.22);   /* v4: input/modal borders read clearly */
   --border-accent: rgba(194, 239, 78, 0.35);
 
   /* Accents — ONE loud accent: electric lime, reserved for CTA/focus/active pills */
   --primary: #c2ef4e;
   --primary-hover: #d3f57a;
-  --primary-ink: #13101f;                    /* near-black text ON the lime */
+  --primary-ink: #13101f;                       /* near-black text ON the lime */
   --success: #22c55e; --warning: #f59e0b; --danger: #ef4444;  /* semantic trio, pills only */
 
   /* Text */
@@ -52,7 +55,7 @@ Rules:
 - One loud accent (`--primary` c2ef4e lime). It appears **only** on primary buttons, focus rings, active/brand badges, and the featured card glow — never decoratively. Semantic colors (`success`/`warning`/`danger`) appear **only** on pills.
 - Violet night is the only canvas family; there is no light mode claim, no navy default (v2 navy tokens superseded by v3).
 - Background atmosphere: two radial tints (lime at top-right ≤ 7%, violet at bottom-left ≤ 10%) over `--bg-surface`, plus one fixed SVG-noise grain overlay (`feTurbulence` data-URI, `pointer-events: none`, opacity 0.035). GPU-free; no image assets.
-- Bootstrap dark remap: the document root is `lang="ar" dir="rtl" data-bs-theme="dark"` and `--bs-*` variables point at our tokens; primary buttons are forced to lime-bg + `--primary-ink` text (Bootstrap's default white-on-primary would fail contrast on lime).
+- **v4: no Bootstrap.** The document root is `lang="ar" dir="rtl" data-theme="night"`. All components (forms, selects, modal, pills, alerts, table) are hand-rolled custom CSS in the same inline `<style>` block — zero framework stylesheet, zero JS bundle, one font request. Custom form controls: dark surface `#191230`, hairline borders, lime focus ring (`box-shadow: 0 0 0 3px rgba(194,239,78,.15)`), custom SVG chevron on selects, `color-scheme: dark` for date inputs.
 
 ### 1.2 Typography
 
@@ -64,7 +67,7 @@ Rules:
 
 - Single-view SPA: `header` → metric ribbon → table card → modal. No tabs, no navigation — the operator's whole job is on one screen.
 - Container max-width 1400px; body padding 24px (12px below 768px).
-- Card radii 12px; pill/button radii 6px; grid gap 16px (10px below 768px).
+- Card radii 14px; pill radii 999px; control (button/input/select) radii 8px; grid gap 16px (10px below 768px).
 - Responsive: metrics auto-fit `minmax(240px, 1fr)`; below 768px two columns, below 480px one column; table scrolls horizontally (`min-width: 580px`) with `-webkit-overflow-scrolling: touch`.
 
 ### 1.4 Elevation & Shape
@@ -87,18 +90,19 @@ Rules:
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────────┐
-│ أوبيران لأتمتة الحجوزات   [⚡ محرك الفحص السريع]  [🛡️ DRY-RUN]      [+ إضافة مرشح جديد] │
+│ [O] أوبيران لأتمتة الحجوزات             [⚡ محرك الفحص السريع]  [🛡️ DRY-RUN]   │
+│     opran-booking · BMEIA Cairo                                        [+ إضافة مرشح] │
 ├────────────────────────────────────────────────────────────────────────────────┤
 │ ┌──────────────────────────┐ ┌──────────────────────┐ ┌──────────────┐ ┌──────────────┐ │
 │ │ المرشحون النشطون (مميز)  │ │ نافذة الفحص:          │ │ فحوصات اليوم │ │ الحجوزات      │ │
-│ │ 3 / 10                   │ │ 07:00 – 18:00 القاهرة │ │ 1,420        │ │ الناجحة 0    │ │
+│ │ 3 / 10                   │ │ ● داخـل نافذة الفحص   │ │ 1,420        │ │ الناجحة 0    │ │
 │ └──────────────────────────┘ └──────────────────────┘ └──────────────┘ └──────────────┘ │
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- Header: brand title, `⚡ محرك الفحص السريع` badge, `🛡️ وضع الاختبار التجريبي DRY-RUN` badge (rendered only when `DRY_RUN=true`), primary CTA `+ إضافة مرشح جديد`.
+- Header: brand mark (30px lime tile with ink `O` glyph + accent glow) + title «أوبيران لأتمتة الحجوزات» + mono eyebrow `opran-booking · BMEIA Cairo`; `⚡ محرك الفحص السريع` badge; `🛡️ وضع الاختبار التجريبي DRY-RUN` badge (rendered only when `DRY_RUN=true`); primary CTA `+ إضافة مرشح جديد`.
 - Metric card 1 (**featured**, spans 2 columns): **المرشحون النشطون** — `activeJobs / 10`. Carries the accent-border glow.
-- Metric card 2: **نافذة الفحص** — label states the global window (`07:00 – 18:00 بتوقيت القاهرة`); the value is the live Cairo time (18px) with `(داخل النافذة)` / `(خارج النافذة)` state tag. Refreshes every 10s.
+- Metric card 2: **نافذة الفحص** — label states the global window (`07:00 – 18:00 القاهرة`); the value is the live Cairo time (18px mono) with a **live pulse dot** (`window-tag`, lime + 2s pulse animation when inside the window, dim when outside) and a status line «داخل نافذة الفحص — الفحص مفعّل» / «خارج نافذة الفحص». Refreshes every 10s.
 - Metric card 3: **فحوصات اليوم** — `metricsToday.total_checks`.
 - Metric card 4: **الحجوزات الناجحة** — `metricsToday.bookings_completed`, value in `--success`.
 - Metric labels are micro-caps: 11px / 600-weight / `0.04em` letter-spacing in `--text-muted` (Sentry `micro-cap` treatment; Arabic has no uppercase, so it's tracking + weight).
@@ -106,7 +110,7 @@ Rules:
 
 ### Screen 2: Client Table
 
-5 columns, `table-striped table-hover`:
+5 columns, hand-rolled `table` (no framework table classes — hairline row separators, `#261d45` hover):
 
 | Column | Content |
 |---|---|
@@ -139,7 +143,7 @@ One shared modal, one shared HTML form, switched by a mode flag (`editingClientI
 ┌────────────────────────────────────────────────────────────────────────────┐
 │ [mode] إضافة مرشح جديد للنظام / تعديل بيانات المرشح                   [X] │
 ├────────────────────────────────────────────────────────────────────────────┤
-│ ⚠ inline error box (Bootstrap alert-danger, hidden unless a 4xx returns)  │
+│ ⚠ inline error box (custom .alert-danger, hidden unless a 4xx returns)     │
 │ ┌────────────┐ ┌────────────┐                                              │
 │ │ الاسم الأول │ │ اسم العائلة │    فئة الحجز [بكالوريوس / ماجستير… ▼]        │
 │ └────────────┘ └────────────┘                                              │
@@ -156,11 +160,11 @@ One shared modal, one shared HTML form, switched by a mode flag (`editingClientI
 
 - 18 fields, 2-column responsive grid (`form-grid`, single column below 480px). LTR inputs (postal code, email, phone, passport number) use `direction: ltr` inline.
 - Field labels are muted 600-weight above filled controls; required inputs use native `required` + `placeholder` example values (e.g. «أحمد», «١٢ شارع التحرير», `11511`, `A12345678`).
-- The read-only «قواعد المواعيد» box restates FR-3 (global window + no expiry) — no per-client schedule controls exist (v1 controls removed 2026-08-20).
+- The read-only «قواعد المواعيد» box restates FR-3 (global window + no expiry) — no per-client schedule controls exist (v1 controls removed 2026-08-20). v4 restyle: violet tint `rgba(122,92,255,.08)` with a lime edge bar on the inline-start.
 - **Passport keep-flow (edit mode):** the passport input opens empty with placeholder «اتركه فارغًا للإبقاء على الرقم الحالي» and **`required = false`** — empty means "keep existing ciphertext" (the plaintext is never re-sent to the browser). Add mode sets `required = true` and the example placeholder back.
-- Buttons: `إلغاء` (`btn-outline-light`) closes without saving; submit label switches with mode — «حفظ وإنشاء المهمة» (POST) / «حفظ التعديلات» (PUT).
+- Buttons: `إلغاء` (`btn-outline-light`) closes without saving; submit label switches with mode — «حفظ وإنشاء المهمة» (POST) / «حفظ التعديلات» (PUT). Custom button base: 13px/600, 8px radius, `scale(0.98)` on press.
 - Submission errors render **inline** in the alert box (server 400 messages, e.g. field-name errors); the modal stays open; nothing is written on failure.
-- Backdrop: `rgba(0,0,0,.75)` + `backdrop-filter: blur(6px)`; modal `max-width: 640px`; close button carries `aria-label="إغلاق"`.
+- Modal (v4 custom): backdrop `rgba(8,5,18,.78)` + `backdrop-filter: blur(6px)`; dialog surface `--bg-raised #241c42` (one step above cards) with `--border-strong` and 16px radius; header separated by a hairline; `max-width: 660px`; close button `aria-label="إغلاق"` (✕, 30px ghost tile).
 
 ---
 
@@ -185,9 +189,10 @@ The v1 12-states-of-the-state-machine badge matrix (colors/icons per `DRAFT`…`
 2. **Focus:** visible rings (`outline: 2px solid var(--primary); outline-offset: 2px`) on all buttons, inputs, selects — never `box-shadow: none` + nothing.
 3. **Staggered reveal:** metric cards rise in on first load (0.06s cascade).
 4. **Skeleton shimmer** while the table loads; **composed empty state** with CTA when there are no clients.
-5. **Inline form errors** — server 400s land in a Bootstrap `alert-danger` box inside the modal (no `window.alert()` on forms).
+5. **Inline form errors** — server 400s land in a custom `alert-danger` box inside the modal (no `window.alert()` on forms).
 6. **Delete guard** — native `confirm()` before delete; **known-minor:** if the DELETE itself fails (non-4xx/400), the error surfaces via `alert()` — tracked in `docs/implementation-artifacts/deferred-work.md`; deliberate trade-off, not shipped with a fancier toast.
 7. **Auto-refresh:** dashboard reloads every 10s (`setInterval(loadDashboard, 10000)`) — near-real-time state without a socket layer.
+8. **Live window pulse** — the window card dot turns lime and pulses (2s) only while inside the 07:00–18:00 Cairo window; dim outside. Real state, not decoration.
 
 Not shipped (v1 aspirational items removed): toasts, budget gauge, filter pills, context menus, audit-log live feed.
 
@@ -197,17 +202,17 @@ Not shipped (v1 aspirational items removed): toasts, budget gauge, filter pills,
 
 - Full RTL: `dir=rtl` document, Arabic microcopy; LTR islands (`direction: ltr`) only where the domain data is LTR (mono values, email, phone).
 - Semantic markup: real `table/th/td`, real `label` + `input` pairing, `button` elements (no div-click handlers), native `confirm()` for destructive actions (benign for SR users — system dialog).
-- Modal close gets `aria-label="إغلاق"`; the error box is `role="alert"` (Bootstrap).
+- Modal close gets `aria-label="إغلاق"`; the error box is `role="alert"` (custom `.alert`, not Bootstrap).
 - Keyboard: all actions reachable (native buttons/inputs), focus rings visible, Escape/save flows not overridden.
-- Contrast: text `#e8edf6` on `#0b0f1a` (~15:1); muted `#94a3b8` on card (~7:1) — both above WCAG AA even at small sizes.
+- Contrast: text `#f3eefc` on `#1f1633` (~13:1); muted `#a89fce` on card (~7:1) — both above WCAG AA even at small sizes.
 - `prefers-reduced-motion`: all animation disabled.
 
 ---
 
 ## 6. Do's and Don'ts
 
-**Do** — keep the violet-night token family and one loud lime accent; let Bootstrap own forms/tables/modals but remap `--bs-*` to our tokens; use Alexandria for everything text, JetBrains Mono for data; show the global window; mask the passport; keep add/edit in one modal; reload on 10s.
-**Don't** — add a second accent or gradient stacks; return to a navy/blue-default look (v2 superseded); use glassmorphism (`backdrop-filter` only on the modal backdrop); add Inter/Roboto/Cairo/extra webfonts; render per-client schedule controls (global rules only); ship a Bootstrap JS bundle or any new npm dependency; show plaintext passports or PII in logs; re-introduce tabs, toasts, budget gauges, or the 12-state badge matrix (v1) without an operator decision.
+**Do** — keep the violet-night token family and one loud lime accent; keep the design system hand-rolled in the single inline `<style>` block (no framework CSS, no JS bundle — one fewer 200KB request); use Alexandria for everything text, JetBrains Mono for data; show the global window; mask the passport; keep add/edit in one modal; reload on 10s.
+**Don't** — add a second accent or gradient stacks; return to a navy/blue-default look (v2 superseded); use glassmorphism (`backdrop-filter` only on the modal backdrop); add Inter/Roboto/Cairo/extra webfonts; render per-client schedule controls (global rules only); re-import Bootstrap or ship any new npm dependency (v4 removed it — see revision log); show plaintext passports or PII in logs; re-introduce tabs, toasts, budget gauges, or the 12-state badge matrix (v1) without an operator decision.
 
 ---
 

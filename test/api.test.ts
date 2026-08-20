@@ -330,12 +330,13 @@ test("Dashboard: premium assets are present", async () => {
   const res = await worker.fetch(new Request("https://opran-booking.local/"), env, {} as any);
   const html = await res.text();
 
-  assert.ok(html.includes("bootstrap.rtl.min.css"), "Bootstrap RTL CSS must be loaded");
-  assert.ok(html.includes("integrity=\"sha384-CfCrinSRH2IR6a4e6fy2q6ioOX7O6Mtm1L9vRvFZ1trBncWmMePhzvafv7oIcWiW"), "SRI hash must pin the Bootstrap file");
+  assert.ok(!html.includes("bootstrap.rtl.min.css"), "Third-party framework CSS must be dropped for custom design system");
   assert.ok(html.includes("Alexandria"), "Premium Arabic font must be loaded");
-  assert.ok(html.includes("data-bs-theme=\"dark\""), "Bootstrap dark theme must be set");
+  assert.ok(html.includes("data-theme=\"night\""), "Night theme must be set");
+  assert.ok(html.includes("--primary: #c2ef4e"), "Sentry-lime primary token must exist");
   assert.ok(html.includes("skeleton"), "Skeleton loading state must exist");
   assert.ok(html.includes("empty-state"), "Composed empty state must exist");
+  assert.ok(html.includes("dir=\"rtl\""), "Root must stay RTL for Arabic");
 });
 
 test("Dashboard: CRUD affordances wired", async () => {
