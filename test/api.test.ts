@@ -129,7 +129,7 @@ function createMockEnv() {
     MYBROWSER: {} as any,
     DRY_RUN: "true",
     PII_ENCRYPTION_KEY: "test-encryption-key-32-chars-ok",
-    __stores: { clients: clientsStore, jobs: jobsStore }
+    __stores: { clients: clientsStore, jobs: jobsStore, logs: logsStore }
   };
 }
 
@@ -391,4 +391,56 @@ test("API Endpoint: PUT /api/clients/:id updates stored row and keeps empty pass
   assert.strictEqual(stored.category, "Bachelor", "Category must update");
   assert.strictEqual(stored.calendar_id, 44281520, "calendar_id must follow the new category");
   assert.strictEqual(stored.passport_number_enc, beforePassport, "Empty passport must keep existing ciphertext");
+});
+
+test("API Endpoint: DELETE /api/clients/:id rejects unknown id with 404", async () => {
+  const env = createMockEnv();
+  const res = await worker.fetch(
+    new Request("https://opran-booking.local/api/clients/client_unknown", { method: "DELETE" }),
+    env,
+    {} as any
+  );
+  assert.strictEqual(res.status, 404);
+});
+
+test("API Endpoint: DELETE /api/clients/:id protects BOOKED clients with 403", async () => {
+  const env = createMockEnv();
+  const created = await (await worker.fetch(new Request("https://opran-booking.local/api/clients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(FULL_PAYLOAD)
+  }), env, {} as any)).json() as any;
+
+  env.__stores.jobs.find((j: any) => j.client_id === created.clientId).status = "BOOKED";
+
+  const res = await worker.fetch(
+    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, { method: "DELETE" }),
+    env,
+    {} as any
+  );
+  assert.strictEqual(res.status, 403);
+  const body = await res.json() as any;
+  assert.match(body.error, /BOOKED/);
+  assert.strictEqual(env.__stores.clients.length, 1, "BOOKED client must not be deleted");
+});
+
+test("API Endpoint: DELETE /api/clients/:id removes client and writes audit row", async () => {
+  const env = createMockEnv();
+  const created = await (await worker.fetch(new Request("https://opran-booking.local/api/clients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(FULL_PAYLOAD)
+  }), env, {} as any)).json() as any;
+
+  const res = await worker.fetch(
+    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, { method: "DELETE" }),
+    env,
+    {} as any
+  );
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(env.__stores.clients.length, 0, "Client must be removed from store");
+  const audit = env.__stores.logs?.[0];
+  assert.ok(audit, "Audit row must be written");
+  assert.strictEqual(audit.event_type, "CLIENT_DELETED");
+  assert.strictEqual(audit.details, created.clientId);
 });

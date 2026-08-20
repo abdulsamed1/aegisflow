@@ -301,6 +301,39 @@ export default {
         });
       }
 
+      // API: Delete Client
+      const delClientMatch = path.match(/\/api\/clients\/([^\/]+)$/);
+      if (delClientMatch && request.method === "DELETE") {
+        const clientId = decodeURIComponent(delClientMatch[1]);
+
+        const existing = await env.DB.prepare("SELECT id FROM clients WHERE id = ?").bind(clientId).first();
+        if (!existing) {
+          return new Response(JSON.stringify({ error: "Client not found" }), {
+            status: 404,
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
+
+        const job = await env.DB.prepare("SELECT id, status FROM jobs WHERE client_id = ?")
+          .bind(clientId).first<any>();
+        if (job && job.status === "BOOKED") {
+          return new Response(JSON.stringify({ error: "BOOKED clients are protected from deletion" }), {
+            status: 403,
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
+
+        // ponytail: audit via details, not client_id FK — the client row is deleted next and would violate the FK
+        await env.DB.prepare("INSERT INTO audit_logs (event_type, details) VALUES ('CLIENT_DELETED', ?)")
+          .bind(clientId).run();
+        await env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(clientId).run();
+
+        return new Response(JSON.stringify({ success: true, clientId }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...corsHeaders }
+        });
+      }
+
       // API: Toggle Job Active/Pause Lifecycle
       if (path.match(/\/api\/jobs\/([^\/]+)\/(activate|pause|cancel)/) && request.method === "POST") {
         const match = path.match(/\/api\/jobs\/([^\/]+)\/(activate|pause|cancel)/);
