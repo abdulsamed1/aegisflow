@@ -169,6 +169,22 @@ test("API Endpoint: GET /api/status returns operational system metrics", async (
   assert.ok(body.cairoTime !== undefined);
 });
 
+test("API Endpoint: GET /api/clients returns edit-prefill fields (email, phone, passportExpiry)", async () => {
+  const env = createMockEnv();
+  await worker.fetch(new Request("https://opran-booking.local/api/clients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(FULL_PAYLOAD)
+  }), env, {} as any);
+
+  const res = await worker.fetch(new Request("https://opran-booking.local/api/clients"), env, {} as any);
+  assert.strictEqual(res.status, 200);
+  const clients = await res.json() as any[];
+  assert.strictEqual(clients[0].email, "mariam@example.com", "Email must be decrypted for prefill");
+  assert.strictEqual(clients[0].phone, "+201111111111", "Phone must be decrypted for prefill");
+  assert.strictEqual(clients[0].passportExpiry, "2031-12-31", "Passport expiry must be returned for prefill");
+});
+
 test("API Endpoint: POST /api/clients creates encrypted client & candidate job", async () => {
   const env = createMockEnv();
 
