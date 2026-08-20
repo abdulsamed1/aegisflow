@@ -1,56 +1,94 @@
-# Pre-Execution Audit & Task Tracker — BMEIA Appointment Automation (opran-booking)
+# متتبع تقدم المشروع — opran-booking
 
-> **Standard:** AGENTS.md Rule 4 (Pre-Execution Documentation) & Production Lessons.
-> **Last Updated:** 2026-08-19 (post G0-gating review round)
-
----
-
-## High Priority / Critical Gaps
-
-- [ ] **[G0 Portal Evidence Capture] Document First Available Appointment Slot**
-  - **Why:** Booking path structure (slot element, data entry fields, BotDetect CAPTCHA location, confirmation screen) is `UNVERIFIED` because no slots were open during the baseline capture.
-  - **Context:** Booking engine fails closed (`Booking path UNVERIFIED`) until a live slot is captured per `portal-automation-spec.md` section 8. Dry-Run stays enforced.
-  - **Depends on:** Live portal monitoring (24/7 scanner already running this loop).
-
-- [ ] **[Legal Compliance] Written Operator Automation Authorization**
-  - **Why:** BMEIA portal contains no visible Terms of Service or Imprint inside the wizard.
-  - **Context:** Legal decision cannot be inferred from markup; explicit written operator approval required before any live booking.
-  - **Depends on:** Operator decision (open question in brief section 22).
-
-- [ ] **[P0 Security] Admin Authentication (Cloudflare Access)**
-  - **Why:** The dashboard API is currently unauthenticated — anyone can list decrypted client names, create, pause, or cancel jobs.
-  - **Context:** Brief section 13 proposed Cloudflare Access (free up to 50 users); decision must land in PRD and be deployed before production use.
-  - **Depends on:** PRD auth decision.
+> **آخر تحديث:** 2026-08-20 — بعد قرارات النافذة العالمية (D5 معدّل، D8، AD-11) ومزامنة المستندات
+> **كيف تقرأ هذا الملف:** القسم 1 = أين وصلنا. القسم 2 = **ماذا أحتاج منك الآن**. القسم 3 = ما سأنجزه أنا بعدها.
 
 ---
 
-## Core System Architecture & Implementation Tasks
+## 1. التقدم الحالي
 
-- [x] **[P1] Product Requirements Document (`docs/prd.md`)** — updated to 24/7 scanning (D5) and G0-gated booking engine.
-- [x] **[P1] UX Specification (`docs/ux-spec.md`)** — synced with real dashboard (Cairo font, 24/7 metric, rules fields).
-- [x] **[P1] Technical Architecture (`docs/architecture.md`)** — single `status` source (jobs only), corrected measured latencies, booking flow marked UNVERIFIED.
-- [x] **[P1] Epics & User Stories (`docs/epics-and-stories.md`)** — Story 3.3 converted to first-slot capture spike.
-- [x] **[P1] Cloudflare Worker Project Scaffolding** — `wrangler.toml`, `package.json`, `tsconfig.json`, `db/schema.sql`, worker entry point.
-- [x] **[P2] Direct HTTP Discovery Engine** — `POST /HomeWeb/Scheduler` with warmed session cookies (KV) and 3-state G0 contract (measured ~270ms avg).
-- [x] **[P2] Fair 24/7 Scheduler** — up to 3 jobs/tick by oldest `last_check`, week-range scan inside client's accepted dates.
-- [x] **[P2] Durable Object Job Locking** — `JobLockDO` with 5-minute crash-safe lease, release/seal lifecycle.
-- [x] **[P3] Telegram Bot Notification Service** — BOOKED / DRY-RUN slot / critical alerts.
-- [x] **[P3] Test Suite** — 15 passing tests + clean typecheck (see `docs/test-summary.md`).
+| المرحلة | الحالة | التفاصيل |
+|---|---|---|
+| توثيق البوابة (G0 — الفحص) | ✅ **مكتمل** | عقد `POST /HomeWeb/Scheduler` موثق بجلسات حقيقية، المعرفات (`44281520` / `44279679`)، ~270ms متوسط — `docs/portal-automation-spec.md` |
+| ماسح التوافر (Discovery) | 🔄 **سيُعدَّل** | كان: فحص كل أسابيع نافذة العميل. **القرار 2026-08-20:** أفق متداول 8 أسابيع (الأسبوع الحالي + 7) لكل وظيفة |
+| الجدولة | 🔄 **سيُعدَّل** | كانت 24/7. **D5 معدّل 2026-08-20:** نافذة عالمية 07:00–18:00 بتوقيت القاهرة يوميًا (يشمل الجمعة) — خارج النافذة تخرج الدورة فورًا |
+| عمر الطلب | 🔄 **سيُعدَّل** | **D8 (2026-08-20):** الطلب يبقى ACTIVE للأبد حتى BOOKED أو الإلغاء — لا انتهاء بتاريخ؛ حالة EXPIRED إرثية بلا مسار |
+| نموذج العميل | 🔄 **سيُوسَّع** | حقول جديدة (مكان/بلد الميلاد، الجنسية عند الميلاد، اسم العائلة عند الميلاد، العنوان، تاريخ/جهة إصدار الجواز) + زر إلغاء في اللوحة |
+| مزامنة المستندات | ✅ **منجزة 2026-08-20** | `docs/prd.md`، `architecture.md` (AD-11)، `ux-spec.md`، `product-breif.ar.md`، `epics-and-stories.md`، `test-summary.md` — متوافقة مع القرارات |
+| قفل Durable Object | ✅ **مكتمل ومختبر** | قفل بمهلة 5 دقائق + release/seal (BOOKED ⟹ sealed) |
+| التشفير والقناع | ✅ **مكتمل ومختبر** | AES-256-GCM + PBKDF2 — **ملاحظة**: التنفيذ يستمد المفتاح بـPBKDF2 من السر، والبنية تذكر المفتاح مباشرة (اختلاف موثق، لا تغيير دون قرار) |
+| إشعارات Telegram | ✅ **مكتمل (كود)** | غير مفعّل بعد — لا أسرار |
+| لوحة المشغل (عربية) | ✅ **مكتمل + منشورة** | تُخدم من كود الـWorker مباشرة |
+| الاختبارات | ✅ **20/20 + typecheck نظيف** | 15 وحدة + **5 تكامل Miniflare** (D1 حقيقي، KV، DO، تشفير) |
+| **المرحلة 1 — البنية التحتية** | ✅ **مكتملة ومنشورة** | انظر الجدول أدناه |
+| **المرحلة 2 — الأمان والسر** | ✅ **مكتملة** | D7 موثق · `PII_ENCRYPTION_KEY` سر مضبوط · إغلاق آمن مؤكد · اختبارات تكامل |
+| **مراقب Dry-Run** | 🔄 **حي في الإنتاج (24/7 حاليًا)** | `https://opran-booking.maakebda.workers.dev` يأخذ الموعد الأول تلقائيًا — سيصبح داخل النافذة 07:00–18:00 بعد نشر الـrefactor |
+| أول موعد حقيقي (G0 — الحجز) | 🔒 **مقفل بانتظار موعد** | المراقب يفحص كل دقيقة؛ المحرك يرفض أي حجز حي (`Booking path UNVERIFIED`) |
+| محرك الحجز الفعلي | ⛔ **غير مبني — متعمد** | يُبنى من أدلة أول موعد فقط |
+| مصادقة اللوحة (Cloudflare Access) | ❌ **P0 معلق** | اللوحة عارية حاليًا — قرارك |
+| القرار القانوني المكتوب | ✅ **D7 موثق** 2026-08-19 | «أنا أصرّح بأتمتة عملية حجز المواعيد عبر منصة BMEIA» — نطاقه تفويض المشغل فقط، لا يغلق G0 |
+| Telegram داخل النظام | ❌ **معلق** | مرحلة لاحقة — أسرار مفقودة |
+
+### تفاصيل البنية المنشورة (مرحلة 1)
+
+| المورد | المعرف/الرابط | الحالة |
+|---|---|---|
+| الحساب | `b3f785c015c3e0fbbac7af497d188022` (maakebda@gmail.com) | ✅ |
+| الـWorker | `opran-booking` — https://opran-booking.maakebda.workers.dev | ✅ حي |
+| D1 | `opran-booking-db` — `d4a096e4-dc38-4c21-9c42-31678abf1672` — 4 جداول + 2 فهارس | ✅ |
+| KV | `opran_booking_sessions` — `3740afe9c52b4111854321c0b014f1bb` | ✅ |
+| Durable Object | `JOB_LOCK` → `JobLockDO` (SQLite — شرط الخطة المجانية) | ✅ |
+| Browser Binding | `MYBROWSER` | ✅ مقبول بالرفع |
+| Cron | `* * * * *` | ✅ منشور |
+| Smart Placement | مفعّل — `cf-placement: local-MRS` في الاستجابة | ✅ تحقق، متاح على كل الخطط |
+| فحوصات حية | `/api/status` → 200 `dryRun:true` · `/api/clients` → 500 (إغلاق آمن بلا مفتاح) · `/api/logs` → `[]` | ✅ |
+| `PII_ENCRYPTION_KEY` | سر مضبوط عبر `wrangler secret put` (القيمة لم تُعرض أبدًا) | ✅ — `/api/clients` صار `[]` بدل 500 |
+
+### خلاصة المرحلة 2 (+ حشرتان إنتاجيتان كشفتهما اختبارات التكامل وأُصلحتا)
+
+| البند | النتيجة |
+|---|---|
+| D7 (تفويض المشغل) | موثق في `docs/product-breif.ar.md` §4 + `docs/prd.md` (D1–D8) + `docs/portal-automation-spec.md` §9 |
+| `PII_ENCRYPTION_KEY` | أُنشئ بأمان (`openssl rand -base64 32` → `wrangler secret put`) وتحقق حيًا: `/api/clients` 500 → `[]` |
+| إغلاق آمن بلا مفتاح | اختبار تكامل: POST/GET `/api/clients` → 500 مع رسالة واضحة |
+| **حشرة 1 — جدولة:** | `SELECT jobs.*, clients.*` (العمود `id` متطابق) كان يجعل `job.id` = معرف *العميل* — كل تحديثات المجدول تصيب الصف الخاطئ. أُصلح: أعمدة صريحة في `SCHEDULER_PICK_QUERY` واستُورد الصف من `src/scheduler.ts` |
+| **حشرة 2 — الإضافة:** | `INSERT INTO clients` كان 12 عمودًا مقابل 11 علامة `?` — `POST /api/clients` يفشل دائمًا. أُصلح في `src/index.ts` |
+| اختبارات تكامل (5) | إنشاء عميل → تشفير في D1 → قناع في GET · إغلاق آمن · عدالة مجدول (أقدم `last_check` أولًا، استبعاد backoff) · دورة قفل DO · استيلاء قفل منتهي (TTL) عبر ملف SQLite الحقيقي |
+| قيد بيئي | Miniflare 3.20250718.3 لا يدعم `dispatchScheduled` وBrowser Binding — مسار المجدول المباشر يظل مغطى بالوحدة + الاختبار الحي للإنتاج |
 
 ---
 
-## Deferred / Next
+## 2. ماذا أحتاج منك (بالترتيب)
 
-- [ ] **[P1] Integration tests on Miniflare (local Workers runtime)**
-  - **Why:** Current API tests use a hand-rolled mock D1; production lessons require data actually read/written against real emulated infrastructure.
-  - **Context:** Start from `test/api.test.ts` and swap the mock env for Miniflare D1/KV/DO bindings.
-  - **Depends on:** `db/schema.sql` migrations running locally.
+### (أ) Cloudflare Access — معلق بانتظار نقرة واحدة منك
+الواجهة البرمجية (API) أبلغت: `403 code 9999 — Access is not enabled. Visit the Access dashboard...`
+التمكين **يدوي فقط عبر لوحة التحكم** — افتح https://one.dash.cloudflare.com → **Zero Trust** → زر **Enable Access** (بدون حساب مدفوع).
+بعد تمكينه سأكمل: إنشاء تطبيق Access عبر API وحماية `/api/clients` و`/api/jobs/*` واللوحة.
 
-- [ ] **[P1] Replace placeholder resource IDs in `wrangler.toml`**
-  - **Why:** `database_id` and KV `id` are placeholders; `wrangler deploy` will fail until real resources are created and bound.
+### (ب) بوت Telegram (مرحلة لاحقة — ليس عاجلًا)
+- أنشئ بوتًا عبر @BotFather واستخرج `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` عند وصولنا مرحلته.
 
-- [ ] **[P2] Verify `placement = smart` availability on Workers Free plan**
-  - **Why:** AD-8 relies on it; unverified on the free tier.
+### (ج) قرارات صغيرة
+1. **المصادقة:** بعد النقرة (أ) أكمل الحماية عبر API — لا حاجة لقرار إضافي. إن رغبت ببديل «حجب الـAPI الكتابي» قبل التمكين قل لي.
+2. **قاعدة الجواز 6 أشهر:** صحيح رسميًا أم نتحقق؟ (موسومة حاليًا [ASSUMPTION])
+3. **الحساب:** تأكد أن استخدام maakebda@gmail.com للبنية مقصود (استبدلنا توكن abdalsamed71@gmail.com في الجهاز).
 
-- [ ] **[P2] Confirm the 6-month passport-validity rule against official requirements**
-  - **Why:** Currently an `[ASSUMPTION]` in PRD FR-2 / Story 1.3; must be confirmed before it becomes a hard validation gate.
+---
+
+## 3. ما سأنجزه أنا بعد إجاباتك
+
+1. **تنفيذ قرارات 2026-08-20 (مصادق عليها):**
+   - `src/scheduler.ts`: نافذة عالمية 07:00–18:00 القاهرة يوميًا + دالة نقية `rollingMondays(8)` + حذف مسار EXPIRED.
+   - `src/index.ts`: حذف حقول التواريخ/الأيام/الساعات من النموذج، إضافة الحقول الجديدة (مشفرة حسب فئة الحقل)، زر إلغاء، كتابة الأعمدة الإرثية بقيم ثابتة عامة.
+   - `db/schema.sql` + ALTERات إنتاجية إضافية فقط (9 أعمدة جديدة على `clients`).
+   - تحديث الاختبارات (وحدة + تكامل Miniflare) وتشغيل `npm test` + `npm run typecheck` + نشر + تحقق حي.
+2. إنشاء تطبيق Access عبر API وحماية `/api/clients` و`/api/jobs/*` واللوحة (بعد النقرة (أ)).
+3. عند أول `APPOINTMENT_FOUND`: توثيق مسار الحجز الكامل (spec §8) → بناء محرك الحجز → إغلاق G0 (يبقى مقفلًا رغم D7 — لا دليل حجز حي بعد).
+4. رفع Dry-Run بعد G0 فقط (D7 وحده لا يغلق البوابة الفنية).
+
+---
+
+## ملاحظات للنشر القادم
+
+- `wrangler` مثبت 3.114.17 وقديمة (4.124.0 متاح) — ترقية عند أول فرصة هادئة.
+- `npm audit` أبلغ عن تنبيهات — لم نلمسها لأنها خارج نطاق المرحلة 1.

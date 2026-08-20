@@ -1,5 +1,6 @@
 name = "opran-booking"
 main = "src/index.ts"
+account_id = "b3f785c015c3e0fbbac7af497d188022"
 compatibility_date = "2025-09-15"
 compatibility_flags = ["nodejs_compat"]
 
@@ -14,21 +15,23 @@ ENVIRONMENT = "production"
 [[d1_databases]]
 binding = "DB"
 database_name = "opran-booking-db"
-database_id = "opran-booking-d1-id"
+database_id = "d4a096e4-dc38-4c21-9c42-31678abf1672"
 
 # Cloudflare Durable Objects Binding
 [[durable_objects.bindings]]
 name = "JOB_LOCK"
 class_name = "JobLockDO"
 
+# SQLite-backed DO (required by Workers Free plan — only SQLite DOs are created on Free)
+# Storage API used by JobLockDO (storage.get/put/delete) is identical on SQLite backend.
 [[migrations]]
 tag = "v1"
-new_classes = ["JobLockDO"]
+new_sqlite_classes = ["JobLockDO"]
 
 # Cloudflare KV Namespace Binding (Session Storage)
 [[kv_namespaces]]
 binding = "SESSION_KV"
-id = "opran_booking_sessions"
+id = "3740afe9c52b4111854321c0b014f1bb"
 
 # Cloudflare Browser Run (Playwright) Binding
 [browser]

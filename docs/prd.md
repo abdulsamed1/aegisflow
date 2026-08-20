@@ -1,8 +1,8 @@
 # Product Requirements Document (PRD) — BMEIA Appointment Automation Platform (opran-booking)
 
 > **Status:** FINAL (MVP Specification)  
-> **Version:** 1.0.0  
-> **Last Updated:** 2026-08-19  
+> **Version:** 1.1.0  
+> **Last Updated:** 2026-08-20  
 > **Author:** Principal Staff Engineer & Product Manager  
 
 ---
@@ -15,7 +15,7 @@ The platform allows a single operator to input candidate client details once. Du
 
 ---
 
-## 2. Locked Strategic Decisions (D1–D6)
+## 2. Locked Strategic Decisions (D1–D8)
 
 | ID | Decision | Locked Value | Rationale |
 |---|---|---|---|
@@ -23,8 +23,10 @@ The platform allows a single operator to input candidate client details once. Du
 | **D2** | MVP Scale | Up to 10 active concurrent client jobs | Micro-operator scale fitting Cloudflare Free Tier |
 | **D3** | Cost Policy | $0 cost target on Cloudflare Free Tier ($5 Paid Workers fallback if needed) | Zero-cost initial deployment mandate |
 | **D4** | Notifications | Telegram Bot API for Operator alerts exclusively | Streamlined single-channel operational alerts |
-| **D5** | Scanning Schedule | 24/7 continuous scanning every minute (no fixed release schedule exists on the portal); Cairo time displayed for reference only | Operator decision 2026-08-19 |
+| **D5** | Scanning Schedule | Global Cairo operating window **07:00–18:00, every day (Friday included)**; scanning runs every minute inside the window only | Operator decision 2026-08-20 — **amends the 2026-08-19 lock (24/7, no window)**; same underlying rationale: no fixed release schedule exists on the portal |
 | **D6** | User Architecture | Single Operator admin account | Simplified MVP scope without multi-tenancy |
+| **D7** | Operator Authorization | "أنا أصرّح بأتمتة عملية حجز المواعيد عبر منصة BMEIA باستخدام النظام." — records the operator's explicit authorization to automate the BMEIA appointment booking process using this system | Operator statement 2026-08-19; documents operator authorization only — not BMEIA approval, not a legal conclusion |
+| **D8** | Request Lifetime | A request stays `ACTIVE` **forever** until `BOOKED` or operator/client cancellation — no date-based expiry | Operator decision 2026-08-20; the `EXPIRED` state is retained only for schema compatibility — no code path sets it |
 
 ---
 
@@ -64,8 +66,9 @@ stateDiagram-v2
     ACTIVE --> PORTAL_ERROR: Unexpected DOM / Layout Shift
     PORTAL_ERROR --> ACTIVE: Re-queued (Alert Triggered)
     ACTIVE --> CANCELLED: Operator Cancelled (Final)
-    ACTIVE --> EXPIRED: Date Range Passed (Final)
 ```
+
+> **2026-08-20 amendment (D8):** the `ACTIVE --> EXPIRED` transition ("Date Range Passed") was removed — requests have no end date. `EXPIRED` stays in the state enum for D1 schema compatibility only.
 
 ### State Matrix Definitions
 
@@ -82,15 +85,15 @@ stateDiagram-v2
 | `TEMPORARY_ERROR` | Network timeout or HTTP 5xx | `ACTIVE` | Error handler (Backoff) |
 | `PORTAL_ERROR` | Unknown portal structural change | `ACTIVE` | Error handler (Backoff + Alert) |
 | `CANCELLED` | **Terminal**: Manually stopped | None | Operator action |
-| `EXPIRED` | **Terminal**: Latest allowed date passed | None | Scheduler audit |
+| `EXPIRED` | **Legacy** — was "Latest allowed date passed"; no code path sets it since D8 (no date ranges) | None | Retained for D1 schema compatibility |
 
 ---
 
 ## 5. Functional Requirements (FR)
 
 ### FR-1: Client Management & PII Schema
-- System shall store complete client profile: First Name, Last Name, Gender, Date of Birth, Nationality, Passport Number, Passport Expiry, Email, Phone Number, Category (Bachelor vs. Master/PhD).
-- All client PII fields shall be encrypted using AES-256-GCM before writing to Cloudflare D1.
+- System shall store complete client profile: First Name, Last Name, Family Name at Birth, Gender, Date of Birth, Place of Birth, Country of Birth, Nationality, Nationality at Birth, Passport Number, Passport Issue Date, Passport Issuing Country, Passport Expiry, Street & House Number, Postal Code, City, Email, Phone Number, Category (Bachelor vs. Master/PhD).
+- All client PII fields shall be encrypted using AES-256-GCM before writing to Cloudflare D1. Encryption classes follow the 2026-08-20 convention: identity/contact strings (names, passport number, address street/city/postal code, email, phone) encrypted; dates and categorical values (DoB, passport dates, nationalities, place/country of birth) plaintext — same class as the pre-existing `dob`/`nationality` columns.
 
 ### FR-2: Structural Validation Engine
 - System shall validate client data against BMEIA requirements prior to allowing transition to `READY`.
@@ -98,17 +101,16 @@ stateDiagram-v2
 - Invalid data transitions the record to `VALIDATION_ERROR` with explicit error details displayed in UI.
 
 ### FR-3: Appointment Preference Rules
-- Operator shall define specific rules per client:
-  - `calendar_id`: `44281520` (Bachelor) or `44279679` (Master/PhD/Scholarship).
-  - `start_date`: Earliest acceptable date (`YYYY-MM-DD`).
-  - `end_date`: Latest acceptable date (`YYYY-MM-DD`).
-  - `preferred_days`: Allowed days of week (e.g., Monday, Wednesday).
-  - `preferred_time_range`: Allowed time range (e.g., 08:00–12:00).
+- Preference rules are **global and identical for every client** (operator decision 2026-08-20 — no per-client customization):
+  - Operating window: every day, 07:00–18:00 Cairo time (Friday included).
+  - Scan horizon: current week + 7 forward weeks (8 Mondays, global constant).
+- The only per-client preference is `calendar_id`: `44281520` (Bachelor) or `44279679` (Master/PhD/Scholarship).
+- No per-client date range, day selection, or time range is collected or stored.
 
-### FR-4: Fair Scheduler Engine (24/7)
-- Scheduler shall run via Cloudflare Worker Cron Trigger every 1 minute, **24/7** (D5: no fixed slot-release schedule exists).
+### FR-4: Fair Scheduler Engine (Global Cairo Window)
+- Scheduler shall run via Cloudflare Worker Cron Trigger every 1 minute, **only inside the global Cairo window 07:00–18:00, daily including Friday** (D5 as amended 2026-08-20); outside the window each tick exits immediately.
 - Fairness Algorithm: Selects up to 3 `ACTIVE` jobs per tick ordered strictly by **oldest `last_check` timestamp** (measuring outstanding backlog, NOT daily attempt counts).
-- Week Range Scan: Each job's availability scan covers every Monday inside the client's `start_date`–`end_date` window (up to 52 weeks).
+- Rolling Horizon Scan: Each job's availability scan covers the current week plus the next 7 weeks (8 Mondays, global constant in `src/scheduler.ts`) — the portal accepts any `Monday` value (G0 §5).
 - Backoff Policy: Jobs with `TEMPORARY_ERROR` or `BOOKING_FAILED` apply exponential backoff (2, 4, 8, 16, 32, max 60 minutes).
 
 ### FR-5: Single POST Discovery Scanner
@@ -144,7 +146,7 @@ stateDiagram-v2
 
 ### FR-10: Operator Admin Dashboard
 - Single-page web application hosted on Cloudflare Workers Static Assets.
-- Functions: Client listing, status filtering, client creation/editing, job activation/pausing, audit log viewer, live metrics (checks/hr, slot hit rate).
+- Functions: Client listing, status filtering, client creation/editing, job activation/pausing/cancellation, audit log viewer, live metrics (checks/hr, slot hit rate).
 
 ---
 
@@ -168,7 +170,7 @@ stateDiagram-v2
 
 ## 7. Verification & Acceptance Criteria
 
-1. **Unit Tests**: Rule-matching logic tested with pure functions (date/time/calendar filtering).
-2. **Integration Tests**: Scheduler queue sorting verified to prioritize oldest `last_check` over count.
+1. **Unit Tests**: Rule-matching logic tested with pure functions (window, horizon, calendar filtering).
+2. **Integration Tests**: Scheduler queue sorting verified to prioritize oldest `last_check` over count; global-window gating (in/out of 07:00–18:00 Cairo) and rolling-horizon generation verified against the pure source module.
 3. **Concurrency Test**: Simultaneous trigger of 2 workers on same client job resolves cleanly with exactly 1 DO lock acquisition and zero double bookings.
 4. **Dry-Run Test**: End-to-end execution on live/mock portal stops before final submit and stores verification screenshot.

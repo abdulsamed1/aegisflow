@@ -1,8 +1,8 @@
 # QA Test Automation Summary — opran-booking
 
-> **Generated:** 2026-08-19 (updated after G0-gating review)  
+> **Generated:** 2026-08-20 (updated after the global-window decisions D5/D8 + AD-11)  
 > **Framework:** Node.js Native Test Runner + `tsx` (`node --import tsx --test`)  
-> **Status:** 15 tests PASSING, `tsc --noEmit` clean
+> **Status:** 20 tests PASSING (15 unit + 5 Miniflare integration), `tsc --noEmit` clean
 
 ---
 
@@ -19,9 +19,14 @@
 - [x] Dashboard HTML serves without unverified latency claims.
 
 ### Scheduler (`test/scheduler.test.ts`)
-- [x] Cairo time info returns weekday names for display (24/7 scanning — no window gate, per decision D5).
+- [x] Cairo time info returns weekday names for display.
 - [x] Monday timestamp string matches BMEIA `M/d/yyyy h:mm:ss tt` format.
-- [x] Week-range scan respects the client's accepted date window (no scans past `end_date`).
+- [x] Week-range scan helper returns Mondays inside a given window. *(Being replaced — see below: the 2026-08-20 decisions remove per-client date windows.)*
+
+> **2026-08-20 decisions (D5 amended, D8, AD-11) — pending test updates (land with the refactor):**
+> - [ ] Global-window gating: tick inside 07:00–18:00 Cairo proceeds; outside exits immediately (pure function tested directly, every day incl. Friday).
+> - [ ] Rolling horizon: current week + 7 forward Mondays (8-week global constant) — replaces the legacy week-range test.
+> - [ ] No date-expiry: nothing in the scheduler sets `EXPIRED` (D8).
 
 ### Crypto & Masking (`test/crypto.test.ts`)
 - [x] AES-256-GCM PII encrypt/decrypt round-trip.
@@ -36,6 +41,17 @@
 - [x] `POST /api/clients` creates encrypted client + job (mock D1).
 - [x] `GET /` serves the Arabic admin dashboard (mock env).
 
+### Miniflare Integration (`test/integration.miniflare.test.ts` — added 2026-08-19)
+- [x] Client creation encrypts PII at rest in real D1 and returns masked data on read.
+- [x] Missing `PII_ENCRYPTION_KEY` fails closed with 500 (POST and GET).
+- [x] Scheduler pick query returns oldest-outstanding jobs and excludes backoff jobs (AD-7 fairness).
+- [x] Durable Object lock lifecycle (acquire, reject, release, seal).
+- [x] Stale lock (crashed execution) expires and allows takeover after TTL.
+
+> **2026-08-20 decisions — pending integration-test updates (land with the refactor):**
+> - [ ] New client fields (birth, address, passport-issue) encrypt at rest per the field-class convention.
+> - [ ] Job creation writes the global-constant legacy columns (window 07:00–18:00, all days, 8-week horizon) and the scheduler no longer reads them.
+
 ---
 
 ## 2. Explicitly NOT covered yet (and why)
@@ -43,20 +59,19 @@
 | Area | Reason |
 |------|--------|
 | Live portal booking submission | Booking path UNVERIFIED — fail-closed by design until first-slot capture (G0 spec section 8) |
-| Real D1/KV/DO integration | Unit-level mock env only; integration tests with Miniflare (local) are the next step after schema migration runs |
+| `dispatchScheduled` Cron-path integration | Miniflare 3.20250718.3 has no `dispatchScheduled`; window gating is covered by pure-function unit tests + the live production tick |
 | Playwright form-fill against live slots | Requires an actual appearing slot; captured per `portal-automation-spec.md` section 8 plan |
-| Auth (Cloudflare Access) | Decision pending in PRD; dashboard currently unauthenticated — P0 action item |
+| Auth (Cloudflare Access) | Operator action pending — dashboard currently unauthenticated — P0 action item (Todo.md (أ)) |
 
 ---
 
 ## 3. Execution Benchmark (latest run)
 
 ```text
-ℹ tests 15
-ℹ pass 15
+ℹ tests 20
+ℹ pass 20
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms ~525ms
 ```
