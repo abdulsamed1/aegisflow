@@ -649,7 +649,7 @@ function getAdminHTML(): string {
       border-radius: var(--radius-card); margin-bottom: 22px;
     }
 
-    /* ---- metric card
+    /* ---- metric cards ---- */
     .grid-metrics {
       display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
       gap: 16px; margin-bottom: 22px;
