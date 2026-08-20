@@ -342,6 +342,14 @@ test("Dashboard: premium assets are present", async () => {
   assert.ok(html.includes("skeleton"), "Skeleton loading state must exist");
   assert.ok(html.includes("empty-state"), "Composed empty state must exist");
   assert.ok(html.includes("dir=\"rtl\""), "Root must stay RTL for Arabic");
+  // Regression: an unclosed /* comment silently swallows whole CSS rules.
+  // Strip comment blocks first so rule text INSIDE a comment can't pass.
+  const styleOpen = html.indexOf("<style>");
+  const styleClose = html.indexOf("</style>");
+  const css = html.slice(styleOpen, styleClose).replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.ok(css.includes(".grid-metrics {"), "Metric grid rule must not be swallowed by a comment");
+  assert.ok(css.includes(".metric-card {"), "Metric card rule must not be swallowed by a comment");
+  assert.ok(css.includes(".metric-card.featured"), "Featured card rule must not be swallowed by a comment");
 });
 
 test("Dashboard: CRUD affordances wired", async () => {
