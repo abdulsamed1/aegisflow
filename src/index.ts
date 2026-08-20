@@ -213,6 +213,94 @@ export default {
         });
       }
 
+      // API: Update Client
+      const putClientMatch = path.match(/\/api\/clients\/([^\/]+)$/);
+      if (putClientMatch && request.method === "PUT") {
+        const clientId = decodeURIComponent(putClientMatch[1]);
+        const body: any = await request.json().catch(() => null);
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+          return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
+
+        const secret = requireSecret(env);
+        if (!secret) return secretErrorResponse();
+
+        const requiredFields = ["firstName", "lastName", "passportNumber", "passportExpiry", "dob",
+          "email", "phone", "category", "familyNameAtBirth", "placeOfBirth", "countryOfBirth",
+          "nationalityAtBirth", "street", "postalCode", "city", "passportIssueDate", "passportIssuingCountry"];
+        const missing = requiredFields.find((f) => f === "passportNumber"
+          ? typeof body[f] !== "string"
+          : (typeof body[f] !== "string" || !body[f].trim()));
+        if (missing) {
+          return new Response(JSON.stringify({ error: `Missing required field: ${missing}` }), {
+            status: 400,
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
+
+        const existing = await env.DB.prepare("SELECT id FROM clients WHERE id = ?").bind(clientId).first();
+        if (!existing) {
+          return new Response(JSON.stringify({ error: "Client not found" }), {
+            status: 404,
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
+
+        // ponytail: empty passport = keep existing ciphertext; plaintext passport never re-sent to the browser
+        let passportEnc: string;
+        if (body.passportNumber.trim() === "") {
+          const row = await env.DB.prepare("SELECT passport_number_enc FROM clients WHERE id = ?")
+            .bind(clientId).first<any>();
+          passportEnc = row?.passport_number_enc || "";
+        } else {
+          passportEnc = await encryptPII(body.passportNumber, secret);
+        }
+
+        const calendarId = body.category === "Master_PhD" ? 44279679 : 44281520;
+
+        await env.DB.prepare(
+          `UPDATE clients SET first_name_enc = ?, last_name_enc = ?, gender = ?, dob = ?, nationality = ?,
+             passport_number_enc = ?, passport_expiry = ?, email_enc = ?, phone_enc = ?,
+             family_name_at_birth_enc = ?, place_of_birth = ?, country_of_birth = ?,
+             nationality_at_birth = ?, address_street_enc = ?, address_postal_code_enc = ?,
+             address_city_enc = ?, passport_issue_date = ?, passport_issuing_country = ?,
+             category = ?, calendar_id = ?
+           WHERE id = ?`
+        )
+          .bind(
+            await encryptPII(body.firstName, secret),
+            await encryptPII(body.lastName, secret),
+            body.gender || "Male",
+            body.dob,
+            body.nationality || "Egyptian",
+            passportEnc,
+            body.passportExpiry,
+            await encryptPII(body.email, secret),
+            await encryptPII(body.phone, secret),
+            await encryptPII(body.familyNameAtBirth, secret),
+            body.placeOfBirth,
+            body.countryOfBirth,
+            body.nationalityAtBirth,
+            await encryptPII(body.street, secret),
+            await encryptPII(body.postalCode, secret),
+            await encryptPII(body.city, secret),
+            body.passportIssueDate,
+            body.passportIssuingCountry,
+            body.category,
+            calendarId,
+            clientId
+          )
+          .run();
+
+        return new Response(JSON.stringify({ success: true, clientId }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...corsHeaders }
+        });
+      }
+
       // API: Toggle Job Active/Pause Lifecycle
       if (path.match(/\/api\/jobs\/([^\/]+)\/(activate|pause|cancel)/) && request.method === "POST") {
         const match = path.match(/\/api\/jobs\/([^\/]+)\/(activate|pause|cancel)/);
