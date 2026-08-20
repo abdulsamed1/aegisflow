@@ -40,7 +40,7 @@ flowchart TD
 
 ---
 
-## 2. Architectural Invariants (AD-1 to AD-7)
+## 2. Architectural Invariants (AD-1 to AD-11)
 
 | ID | Title | Rule & Binding | Prevents |
 |---|---|---|---|
@@ -54,6 +54,7 @@ flowchart TD
 | **AD-8** | Edge Origin Proximity Placement | Worker `placement = { mode = "smart" }` configured in `wrangler.toml` to colocate execution near BMEIA origin (Vienna/Frankfurt). `[verify: smart placement availability on Workers Free plan before deploy]` | High cross-continental network latency RTT |
 | **AD-9** | Pre-Serialized Payloads — DEFERRED | Payload pre-serialization applies only to the verified discovery contract today. Any booking-payload optimization is deferred until the booking path is verified (G0 section 6). | Runtime string building & allocation latency |
 | **AD-10** | Concurrent Multi-Candidate Parallel Fan-Out — DEFERRED | Sequential oldest-first fairness (AD-7) is the live design; parallel fan-out is deferred until booking path verification and conflicts with the fair queue as designed. | Sequential candidate submission delays |
+| **AD-11** | Global Cairo Operating Window & Rolling Horizon | All ACTIVE jobs scan only inside **07:00–18:00 Cairo time, every day (Friday included)** — the tick exits immediately outside the window. Each scan covers the **current week + 7 forward weeks** (8-week horizon, global constant in `src/scheduler.ts`). No per-client schedule fields exist; `jobs.start_date/end_date/allowed_days/preferred_time_*` are legacy columns the scheduler never reads. | Out-of-window portal load; unbounded scan fan-out; per-client rule drift |
 
 ---
 
@@ -75,6 +76,15 @@ CREATE TABLE IF NOT EXISTS clients (
     phone_enc TEXT NOT NULL,
     category TEXT CHECK (category IN ('Bachelor', 'Master_PhD')) NOT NULL,
     calendar_id INTEGER NOT NULL,
+    place_of_birth TEXT,
+    country_of_birth TEXT,
+    nationality_at_birth TEXT,
+    family_name_at_birth_enc TEXT,
+    address_street_enc TEXT,
+    address_postal_code_enc TEXT,
+    address_city_enc TEXT,
+    passport_issue_date TEXT,
+    passport_issuing_country TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -87,13 +97,17 @@ CREATE TABLE IF NOT EXISTS jobs (
     status TEXT CHECK (status IN (
         'DRAFT', 'VALIDATION_ERROR', 'READY', 'ACTIVE', 
         'SEARCHING', 'BOOKING', 'BOOKED', 'BOOKING_FAILED', 
-        'TEMPORARY_ERROR', 'PORTAL_ERROR', 'CANCELLED', 'EXPIRED'
+        'TEMPORARY_ERROR', 'PORTAL_ERROR', 'CANCELLED', 'EXPIRED' -- EXPIRED: legacy since D8 (2026-08-20); no code path sets it, retained for table compatibility
     )) DEFAULT 'DRAFT',
     start_date TEXT NOT NULL,
     end_date TEXT NOT NULL,
     allowed_days TEXT NOT NULL, -- JSON Array: ["Monday", "Wednesday"]
     preferred_time_start TEXT DEFAULT '08:00',
     preferred_time_end TEXT DEFAULT '16:00',
+    -- NOTE (2026-08-20, D5/D8 + AD-11): the five columns above are LEGACY per-client
+    -- rule columns. The scheduler never reads them; they are written once at job
+    -- creation with global constants (window 07:00–18:00, all days, 8-week horizon)
+    -- purely to satisfy the NOT NULL constraints of the deployed table.
     check_count INTEGER DEFAULT 0,
     last_check TIMESTAMP,
     last_error_code TEXT,
@@ -143,10 +157,10 @@ sequenceDiagram
     participant D1 as D1 Database
     participant BMEIA as BMEIA Portal API
 
-    Cron->>Sched: Execute Scheduled Check (24/7)
+    Cron->>Sched: Execute Scheduled Check (07:00-18:00 Cairo, daily)
     Sched->>Sched: Scan jobs by oldest last_check (up to 3/tick)
     Sched->>D1: Fetch next job (enabled=1, status='ACTIVE', last_check ASC)
-    D1-->>Sched: Job Record (CalendarId, accepted week range)
+    D1-->>Sched: Job Record (CalendarId; horizon weeks computed globally)
     Sched->>BMEIA: POST /HomeWeb/Scheduler (verified form params, per week)
     BMEIA-->>Sched: HTML Response (measured ~120-770ms)
     alt Response contains 'message-error'

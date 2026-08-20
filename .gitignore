@@ -4,3 +4,11 @@ node_modules/
 dist/
 *.log
 *png
+*jpg
+*.jpeg
+*pdf
+*.env
+*env.d.ts
+*.log
+opran-booking/screenshots/
+.tmp-bundle/

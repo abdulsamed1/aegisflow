@@ -55,7 +55,7 @@ The layout is a single-page application (SPA) comprising:
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│  OPRAN BOOKING  │  Cairo: 14:32:05 (24/7 Scanning)  │  [🛡️ DRY-RUN ACTIVE]  │  [⚡ System: Operational] │
+│  OPRAN BOOKING  │  Cairo: 14:32:05 (07:00–18:00 Scanning)  │  [🛡️ DRY-RUN ACTIVE]  │  [⚡ System: Operational] │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐
 │ ACTIVE JOBS         │ │ CHECKS TODAY        │ │ BROWSER BUDGET      │ │ SUCCESSFUL BOOKINGS │
@@ -78,11 +78,12 @@ Displays all candidate clients with instant filter pills (`All`, `Active`, `Draf
 #### Table Columns:
 1. **Candidate Name & Passport**: Name (bold) + Masked Passport (`A12***78`).
 2. **Category**: Badge `Bachelor` (Blue) or `Master/PhD` (Purple).
-3. **Preferred Date Range**: Start Date → End Date.
+3. **Created**: Registration date of the request (per-client date ranges were removed 2026-08-20 — requests live until `BOOKED` or cancellation, D8).
 4. **Status Badge**: Interactive state pill (see State Color Matrix below).
 5. **Last Checked**: Relative time ("2 mins ago") + total check count.
 6. **Actions**: Context menu / Action buttons:
    - `[Activate / Pause]` toggle button.
+   - `[Cancel]` button — ends the request permanently (operator or client decision, D8).
    - `[Edit]` icon button.
    - `[Logs]` icon button.
 
@@ -101,7 +102,7 @@ Displays all candidate clients with instant filter pills (`All`, `Active`, `Draf
 | `TEMPORARY_ERROR` | Muted Amber | Refresh Icon |
 | `PORTAL_ERROR` | Bright Red | Shield Alert |
 | `CANCELLED` | Dark Gray | Cross Circle |
-| `EXPIRED` | Dim Gray | Clock Icon |
+| `EXPIRED` | Dim Gray (legacy — no longer reachable, D8) | Clock Icon |
 
 ---
 
@@ -115,21 +116,26 @@ A structured form modal with instant client-side validation feedback.
 ├──────────────────────────────────────────────────────────────────────┤
 │ PERSONAL & PASSPORT DATA                                             │
 │ First Name: [ Ahmed               ]  Last Name:  [ Hassan          ] │
+│ Family Name at Birth: [  ...      ]                                  │
 │ Gender:     (•) Male  ( ) Female     DoB:        [ 2002-05-14      ] │
-│ Nationality:[ Egyptian            ]  Phone:      [ +201012345678   ] │
+│ Place of Birth: [ Cairo            ]  Country of Birth: [ Egypt     ] │
+│ Nationality:[ Egyptian            ]  Nationality at Birth: [ ...    ] │
+│ Address:    [ Street / House No.  ]  Postal Code: [ 11511          ] │
+│ City:       [ Cairo               ]  Phone:      [ +201012345678   ] │
 │ Email:      [ ahmed@example.com   ]                                  │
-│ Passport #: [ A28491048           ]  Exp Date:   [ 2029-10-15      ] │
+│ Passport #: [ A28491048           ]  Issue Date: [ 2024-10-15      ] │
+│ Issuing Country: [ Egypt          ]  Exp Date:   [ 2029-10-15      ] │
 ├──────────────────────────────────────────────────────────────────────┤
-│ APPOINTMENT PREFERENCES                                              │
+│ APPOINTMENT RULES — GLOBAL, NOT EDITABLE PER CLIENT (2026-08-20)     │
+│ Window: 07:00–18:00 Cairo time, every day (Friday included)         │
+│ Lifetime: active until BOOKED or cancelled — no expiry date          │
 │ Category:   [ Aufenthaltsbewilligung Student (nur Bachelor)  ▼ ]     │
-│ Start Date: [ 2026-09-01          ]  End Date:   [ 2026-10-31      ] │
-│ Time Range: [ 08:00 ] – [ 15:00 ] (Cairo time)                       │
-│ Allowed Days: [x] Mon [x] Tue [x] Wed [x] Thu [ ] Sat [ ] Sun        │
-│ (Friday closed by the portal)                                        │
 ├──────────────────────────────────────────────────────────────────────┤
 │                      [ Cancel ]   [ Save as Draft ]  [ Save & Validate ]│
 └──────────────────────────────────────────────────────────────────────┘
 ```
+
+> **2026-08-20 decision:** the per-client "Start Date / End Date / Time Range / Allowed Days" controls were removed from this modal. All ACTIVE requests share one global Cairo window (07:00–18:00 daily) and live until booked or cancelled. The additional birth/address/passport-issue fields mirror the observed BMEIA registration form (screenshots) so no booking-path gap remains once G0 closes.
 
 ---
 

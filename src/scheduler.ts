@@ -61,6 +61,19 @@ export function calculateMondayString(targetDate: Date = new Date()): string {
   return `${month}/${dateNum}/${year} 12:00:00 AM`;
 }
 
+export const SCHEDULER_PICK_QUERY = `
+  SELECT jobs.id, jobs.client_id, jobs.start_date, jobs.end_date, jobs.check_count,
+         clients.calendar_id, clients.category, clients.first_name_enc, clients.last_name_enc,
+         clients.gender, clients.dob, clients.nationality, clients.passport_number_enc,
+         clients.passport_expiry, clients.email_enc, clients.phone_enc
+  FROM jobs
+  JOIN clients ON jobs.client_id = clients.id
+  WHERE jobs.enabled = 1
+    AND jobs.status = 'ACTIVE'
+    AND (jobs.backoff_until IS NULL OR jobs.backoff_until <= CURRENT_TIMESTAMP)
+  ORDER BY jobs.last_check ASC
+  LIMIT 3`;
+
 export function listMondaysInRange(startISO: string, endISO: string, now: Date = new Date()): string[] {
   const currentMonday = calculateMondayString(now).split(" ")[0]; // M/d/yyyy
   const startParts = startISO.split("-").map(Number);
