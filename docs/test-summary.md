@@ -1,8 +1,8 @@
 # QA Test Automation Summary — opran-booking
 
-> **Generated:** 2026-08-20 (updated after the SPA CRUD + premium UI work — PUT/DELETE/prefill/dashboard)  
+> **Generated:** 2026-08-20 (updated after the SPA CRUD + premium UI work and the final-review fix wave — PUT/DELETE/prefill/dashboard, FK detach, passport edit mode)  
 > **Framework:** Node.js Native Test Runner + `tsx` (`node --import tsx --test`)  
-> **Status:** 46 tests PASSING (38 unit + 8 Miniflare integration), `tsc --noEmit` clean
+> **Status:** 47 tests PASSING (38 unit + 9 Miniflare integration), `tsc --noEmit` clean
 
 ---
 
@@ -57,6 +57,7 @@
 - [x] `PUT /api/clients/:id` round-trip in real D1: re-encryption, category→calendar recompute, empty-passport keeps ciphertext, job untouched.
 - [x] `DELETE /api/clients/:id` in real D1: client + job cascade, `CLIENT_DELETED` audit row with the deleted id.
 - [x] `DELETE /api/clients/:id` returns 403 for a BOOKED job (rows remain).
+- [x] `DELETE /api/clients/:id` FK-detach regression: succeeds even when scheduler audit rows reference the client — those rows survive with `client_id`/`job_id` NULL (fix 3e0fe0b; D1 enforces FKs).
 
 ---
 
@@ -74,8 +75,8 @@
 ## 3. Execution Benchmark (latest run)
 
 ```text
-ℹ tests 46
-ℹ pass 46
+ℹ tests 47
+ℹ pass 47
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0

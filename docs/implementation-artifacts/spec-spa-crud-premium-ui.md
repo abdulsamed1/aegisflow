@@ -35,9 +35,12 @@ Locked constraints:
    - 404 unknown client id; 200 `{success:true}`.
 2. `DELETE /api/clients/:id`
    - 403 if the client's job is `BOOKED` (real booking evidence protected).
+   - Detach scheduler history first: `UPDATE audit_logs SET client_id = NULL, job_id = NULL
+     WHERE client_id = ?` — scan rows FK-reference the client and D1 enforces FKs, so the
+     delete would otherwise fail (added in fix commit 3e0fe0b as part of the final review).
    - DELETE the client row; job cascades via FK.
-   - One `INSERT` into audit_logs (event `CLIENT_DELETED`) for traceability — ponytail: one line,
-     reuses the existing table.
+   - One `INSERT` into audit_logs (event `CLIENT_DELETED`) after the detach, for traceability —
+     ponytail: one line, reuses the existing table.
    - 404 unknown id; 200 `{success:true}`.
 3. `GET /api/clients` — additionally returns `email`, `phone`, `passportExpiry` for edit prefill.
    Passport number stays masked only.
@@ -80,7 +83,9 @@ Locked constraints:
 - Row actions: تعديل / حذف next to existing pause/cancel. Hidden for BOOKED rows (server enforces too).
 - Edit reuses the SAME modal/form as Add (DRY): one HTML form, a mode flag; prefill from the
   already-loaded clients array — no extra GET endpoint.
-- Passport input in edit mode: empty + placeholder «اتركه فارغًا للإبقاء على الرقم الحالي».
+- Passport input in edit mode: empty + placeholder «اتركه فارغًا للإبقاء على الرقم الحالي»;
+  the native `required` attribute is disabled in edit mode (`required = false`) so the
+  keep-passport submission is not blocked (fix 3e0fe0b).
 - Submit handler branches POST (add) vs PUT (edit); success closes modal and reloads dashboard.
 
 ## Testing
