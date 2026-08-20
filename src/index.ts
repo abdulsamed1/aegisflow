@@ -593,54 +593,34 @@ export default {
 
 function getAdminHTML(isDryRun: boolean): string {
   return `<!DOCTYPE html>
-<html lang="ar" dir="rtl" data-bs-theme="dark">
+<html lang="ar" dir="rtl" data-theme="night">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>نظام أوبيران لأتمتة الحجوزات — لوحة التحكم</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.rtl.min.css" rel="stylesheet" integrity="sha384-CfCrinSRH2IR6a4e6fy2q6ioOX7O6Mtm1L9vRvFZ1trBncWmMePhzvafv7oIcWiW" crossorigin="anonymous">
+  <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
+    /* ===== Sentry-night design system (hand-rolled, no framework CSS) ===== */
     :root {
-      /* Sentry night family — violet-midnight canvas, violet hairlines (inspiration: Sentry design.md) */
       --bg-surface: #150f23;
       --bg-card: #1f1633;
       --bg-card-hover: #261d45;
+      --bg-raised: #241c42;
       --border: rgba(214, 205, 255, 0.10);
+      --border-strong: rgba(214, 205, 255, 0.22);
       --border-accent: rgba(194, 239, 78, 0.35);
-      /* one loud accent: electric lime — reserved for CTAs, focus, active pills */
       --primary: #c2ef4e;
       --primary-hover: #d3f57a;
       --primary-ink: #13101f;
-      --success: #22c55e;
-      --success-bg: rgba(34, 197, 94, 0.14);
-      --warning: #f59e0b;
-      --warning-bg: rgba(245, 158, 11, 0.14);
-      --danger: #ef4444;
-      --danger-bg: rgba(239, 68, 68, 0.14);
-      --text: #f3eefc;
-      --text-muted: #a89fce;
-      --text-dim: #6d6590;
+      --success: #22c55e; --success-bg: rgba(34, 197, 94, 0.14);
+      --warning: #f59e0b; --warning-bg: rgba(245, 158, 11, 0.14);
+      --danger: #ef4444;  --danger-bg: rgba(239, 68, 68, 0.14);
+      --text: #f3eefc; --text-muted: #a89fce; --text-dim: #6d6590;
       --shadow-card: 0 1px 0 rgba(255,255,255,0.04) inset, 0 12px 32px -16px rgba(8,5,18,0.85);
       --shadow-accent: 0 0 24px -8px rgba(194,239,78,0.4);
-      /* Bootstrap dark-theme remap so .table/.btn/.alert/.form-control adopt our palette */
-      --bs-body-bg: var(--bg-surface);
-      --bs-body-color: var(--text);
-      --bs-border-color: var(--border);
-      --bs-primary: var(--primary);
-      --bs-primary-rgb: 194, 239, 78;
-      --bs-danger: var(--danger);
-      --bs-danger-rgb: 239, 68, 68;
-      --bs-secondary-color: var(--text-muted);
-      --bs-table-striped-bg: rgba(194, 239, 78, 0.025);
-      --bs-table-hover-bg: var(--bg-card-hover);
-      --bs-modal-bg: var(--bg-card);
-      --bs-modal-border-color: var(--border);
-      --bs-btn-hover-bg: var(--primary-hover);
-      --bs-btn-hover-border-color: var(--primary-hover);
-      --bs-link-color: var(--primary);
+      --radius-card: 14px; --radius-control: 8px;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -654,151 +634,221 @@ function getAdminHTML(isDryRun: boolean): string {
       padding: 24px;
       line-height: 1.6;
     }
-    /* ponytail: one grain overlay instead of image assets — SVG noise, GPU-free */
     body::after {
-      content: "";
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      z-index: 1;
-      opacity: 0.035;
+      content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 1; opacity: 0.035;
       background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.5'/></svg>");
     }
     .container { max-width: 1400px; margin: 0 auto; position: relative; z-index: 2; }
-    .metric-card, .header, .table-card {
-      box-shadow: var(--shadow-card);
+
+    /* ---- header ---- */
+    .header {
+      display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
+      padding: 18px 22px; background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-card); margin-bottom: 22px; box-shadow: var(--shadow-card);
     }
-    .btn, button { transition: transform 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease; }
-    .btn:active { transform: scale(0.98); }
-    .btn:focus-visible, .form-control:focus, .form-select:focus { outline: 2px solid var(--primary); outline-offset: 2px; box-shadow: none; }
-    .form-control, .form-select { background-color: #191230; border-color: var(--border); color: var(--text); }
-    .form-control:focus, .form-select:focus { background-color: #191230; border-color: var(--primary); }
-    .btn-primary, .btn-primary:hover, .btn-primary:focus {
-      color: var(--primary-ink) !important;
-      background-color: var(--primary);
-      border-color: var(--primary);
+    .brand-group { display: flex; align-items: center; gap: 12px; }
+    .brand-mark {
+      width: 30px; height: 30px; border-radius: 8px; background: var(--primary);
+      color: var(--primary-ink); display: grid; place-items: center;
+      font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 15px;
+      box-shadow: var(--shadow-accent);
     }
-    .btn-primary:hover { background-color: var(--primary-hover); border-color: var(--primary-hover); }
-    .skeleton {
-      background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-card-hover) 50%, var(--bg-card) 75%);
-      background-size: 200% 100%;
-      animation: shimmer 1.2s infinite;
+    .brand-title { font-size: 19px; font-weight: 800; color: #fff; letter-spacing: -0.3px; }
+    .brand-eyebrow {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500;
+      color: var(--text-dim); letter-spacing: 0.14em; text-transform: uppercase; margin-top: 2px;
     }
-    @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-    .empty-state { text-align: center; padding: 48px 16px; }
-    .empty-state .icon { font-size: 40px; margin-bottom: 12px; }
-    @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-    .metric-card { animation: rise 0.4s ease both; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.03em;
+    }
+    .badge-fastpath { background: rgba(194, 239, 78, 0.12); color: var(--primary); border: 1px solid rgba(194, 239, 78, 0.25); }
+    .badge-dryrun { background: var(--warning-bg); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.25); }
+
+    /* ---- metric cards ---- */
+    .grid-metrics {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px; margin-bottom: 22px;
+    }
+    .metric-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-card); padding: 18px 20px; box-shadow: var(--shadow-card);
+      animation: rise 0.4s ease both;
+    }
     .metric-card:nth-child(2) { animation-delay: 0.06s; }
     .metric-card:nth-child(3) { animation-delay: 0.12s; }
     .metric-card:nth-child(4) { animation-delay: 0.18s; }
     .metric-card.featured {
-      grid-column: span 2;
-      border: 1px solid var(--border-accent);
+      grid-column: span 2; border-color: var(--border-accent);
       box-shadow: var(--shadow-accent);
       background: linear-gradient(135deg, rgba(194, 239, 78, 0.07), transparent 60%), var(--bg-card);
     }
+    .metric-label {
+      font-size: 11px; color: var(--text-muted); font-weight: 600; letter-spacing: 0.04em;
+      margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+    }
+    .metric-val { font-size: 28px; font-weight: 800; color: #fff; line-height: 1.2; }
+    .metric-val.mono, .mono { font-family: 'JetBrains Mono', monospace; direction: ltr; display: inline-block; }
+    .livetag {
+      display: inline-flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 700;
+      color: var(--text-muted); letter-spacing: 0.05em; margin-top: 2px;
+    }
+    .livetag .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); }
+    .livetag.on .dot { background: var(--primary); box-shadow: 0 0 8px 2px rgba(194,239,78,0.55); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+    /* ---- table card ---- */
+    .table-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-card); overflow: hidden; box-shadow: var(--shadow-card);
+    }
+    .table-header {
+      display: flex; justify-content: space-between; align-items: center; padding: 16px 22px;
+      border-bottom: 1px solid var(--border);
+    }
+    .table-header h2 { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; }
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { width: 100%; border-collapse: collapse; min-width: 580px; }
+    thead th {
+      font-size: 11px; font-weight: 600; color: var(--text-dim); letter-spacing: 0.05em;
+      text-align: right; padding: 12px 18px; border-bottom: 1px solid var(--border-strong);
+      white-space: nowrap;
+    }
+    tbody td { padding: 13px 18px; font-size: 13.5px; border-bottom: 1px solid rgba(214,205,255,0.05); }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr { transition: background-color 0.15s ease; }
+    tbody tr:hover { background: var(--bg-card-hover); }
+    .cell-name { font-weight: 700; }
+    .cell-cat { color: var(--text-muted); font-size: 12.5px; }
+    .cell-pid { font-family: 'JetBrains Mono', monospace; direction: ltr; display: inline-block; color: var(--text-muted); font-size: 12.5px; }
+
+    .status-pill {
+      display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px;
+      border-radius: 999px; font-size: 11.5px; font-weight: 700; white-space: nowrap;
+    }
+    .status-active { background: rgba(194, 239, 78, 0.12); color: var(--primary); border: 1px solid rgba(194,239,78,0.2); }
+    .status-paused { background: var(--warning-bg); color: var(--warning); border: 1px solid rgba(245,158,11,0.2); }
+
+    .row-actions { display: flex; gap: 8px; white-space: nowrap; }
+
+    /* ---- buttons ---- */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      font-family: 'Alexandria', sans-serif; font-size: 13px; font-weight: 600;
+      padding: 8px 14px; border-radius: var(--radius-control); border: 1px solid transparent;
+      cursor: pointer; transition: transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn:focus-visible, .form-control:focus, .form-select:focus {
+      outline: 2px solid var(--primary); outline-offset: 2px;
+    }
+    .btn-primary {
+      background: var(--primary); color: var(--primary-ink); border-color: var(--primary);
+    }
+    .btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); box-shadow: var(--shadow-accent); }
+    .btn-outline-light {
+      background: transparent; color: var(--text-muted); border-color: var(--border-strong);
+    }
+    .btn-outline-light:hover { background: var(--bg-card-hover); color: var(--text); }
+    .btn-outline-danger { background: transparent; color: var(--danger); border-color: rgba(239,68,68,0.35); }
+    .btn-outline-danger:hover { background: var(--danger-bg); }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+    /* ---- modal ---- */
+    .modal-backdrop {
+      display: none; position: fixed; inset: 0; background: rgba(8, 5, 18, 0.78);
+      backdrop-filter: blur(6px); z-index: 100; align-items: center; justify-content: center; padding: 16px;
+    }
+    .modal {
+      width: 100%; max-width: 660px; max-height: 92vh; overflow-y: auto;
+      background: var(--bg-raised); border: 1px solid var(--border-strong); border-radius: 16px;
+      box-shadow: var(--shadow-card); animation: rise 0.25s ease both;
+    }
+    .modal-head {
+      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+      padding: 18px 22px; border-bottom: 1px solid var(--border);
+    }
+    .modal-title { font-size: 17px; font-weight: 800; letter-spacing: -0.2px; }
+    .btn-close {
+      background: transparent; border: 1px solid var(--border-strong); color: var(--text-muted);
+      width: 30px; height: 30px; border-radius: 8px; font-size: 14px; cursor: pointer; line-height: 1;
+    }
+    .btn-close:hover { background: var(--bg-card-hover); color: var(--text); }
+    .modal-body { padding: 20px 22px 22px; }
+
+    .alert { padding: 10px 14px; border-radius: var(--radius-control); font-size: 13px; margin-bottom: 14px; }
+    .alert-danger { background: var(--danger-bg); color: var(--danger); border: 1px solid rgba(239,68,68,0.3); }
+    .d-none { display: none !important; }
+
+    .global-rules {
+      background: rgba(122, 92, 255, 0.08); border: 1px solid var(--border-accent);
+      border-radius: var(--radius-control); padding: 12px 14px; font-size: 13px; color: var(--text-muted);
+      margin-bottom: 16px; position: relative;
+    }
+    .global-rules::before {
+      content: ""; position: absolute; inset-inline-start: 0; top: 8px; bottom: 8px; width: 3px;
+      border-radius: 2px; background: var(--primary);
+    }
+
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; }
+    .form-group label { display: block; font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; }
+    .form-control, .form-select {
+      width: 100%; background: var(--bg-surface); border: 1px solid var(--border-strong);
+      border-radius: var(--radius-control); color: var(--text); font-family: 'Alexandria', sans-serif;
+      font-size: 13.5px; padding: 9px 12px; transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .form-control:focus, .form-select:focus {
+      outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(194,239,78,0.15);
+    }
+    .form-select {
+      appearance: none; -webkit-appearance: none;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M1 1l4 4 4-4' stroke='%23a89fce' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+      background-repeat: no-repeat; background-position: left 12px center; padding-inline-end: 28px;
+    }
+    input[type=date] { color-scheme: dark; }
+    .form-hint { font-size: 11.5px; color: var(--text-dim); margin-top: 4px; }
+
+    .modal-footer {
+      display: flex; justify-content: flex-start; gap: 10px; padding-top: 18px;
+      border-top: 1px solid var(--border); margin-top: 18px;
+    }
+
+    /* ---- skeleton / empty ---- */
+    .skeleton {
+      background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-raised) 50%, var(--bg-card) 75%);
+      background-size: 200% 100%; animation: shimmer 1.2s infinite; border-radius: 4px;
+    }
+    @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+    .empty-state { text-align: center; padding: 44px 16px; }
+    .empty-state .icon {
+      width: 52px; height: 52px; margin: 0 auto 14px; border-radius: 14px; font-size: 24px;
+      display: grid; place-items: center; background: rgba(194,239,78,0.10);
+      border: 1px solid rgba(194,239,78,0.25);
+    }
+    .empty-state .t { font-weight: 700; font-size: 15px; }
+    .empty-state .d { color: var(--text-muted); font-size: 13px; margin: 6px 0 18px; }
+
+    /* ---- footer ---- */
+    .sysline {
+      margin-top: 22px; padding: 12px 18px; font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px; letter-spacing: 0.08em; color: var(--text-dim); direction: ltr; text-align: center;
+    }
+
+    @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     @media (prefers-reduced-motion: reduce) {
       * { animation: none !important; transition: none !important; }
     }
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 20px 24px;
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      margin-bottom: 24px;
-    }
-    .brand-group { display: flex; align-items: center; gap: 16px; }
-    .brand-title { font-size: 20px; font-weight: 800; color: #fff; letter-spacing: -0.3px; }
-    .badge-fastpath {
-      background: rgba(194, 239, 78, 0.12);
-      color: var(--primary);
-      border: 1px solid rgba(194, 239, 78, 0.25);
-      padding: 4px 12px;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 700;
-    }
-    .badge-dryrun {
-      background: var(--warning-bg);
-      color: var(--warning);
-      border: 1px solid rgba(245, 158, 11, 0.25);
-      padding: 4px 12px;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 700;
-    }
-    .grid-metrics {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-    .metric-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
-    }
-    .metric-label { font-size: 11px; color: var(--text-muted); font-weight: 600; letter-spacing: 0.04em; margin-bottom: 8px; }
-    .metric-val { font-size: 28px; font-weight: 800; color: #fff; }
-    .mono { font-family: 'JetBrains Mono', monospace; direction: ltr; display: inline-block; }
-    .status-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 10px;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 700;
-    }
-    .status-active { background: rgba(194, 239, 78, 0.12); color: var(--primary); }
-    .status-paused { background: var(--warning-bg); color: var(--warning); }
-    .modal-backdrop {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(8, 5, 18, 0.78);
-      backdrop-filter: blur(6px);
-      z-index: 100;
-      align-items: center;
-      justify-content: center;
-      padding: 16px;
-    }
-    .table-wrapper {
-      width: 100%;
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-    }
-    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-    .form-group { margin-bottom: 16px; }
-    .form-group label { display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; }
     @media (max-width: 768px) {
       body { padding: 12px; }
-      .header {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 14px;
-        padding: 16px;
-      }
-      .brand-group {
-        flex-wrap: wrap;
-        gap: 8px;
-      }
-      .brand-title { font-size: 18px; }
-      .btn { width: 100%; text-align: center; min-height: 44px; }
-      .grid-metrics {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 10px;
-      }
+      .header { flex-direction: column; align-items: stretch; gap: 12px; }
+      .brand-group { flex-wrap: wrap; }
+      .btn { min-height: 44px; }
+      .grid-metrics { grid-template-columns: repeat(2, 1fr); gap: 10px; }
       .metric-card { padding: 14px; }
-      .metric-label { font-size: 12px; }
+      .metric-label { font-size: 10.5px; }
       .metric-val { font-size: 22px; }
-      table { min-width: 580px; }
-      th, td { padding: 12px 14px; font-size: 13px; }
+      .form-grid { grid-template-columns: 1fr; }
+      .row-actions { flex-wrap: wrap; }
     }
     @media (max-width: 480px) {
       .grid-metrics { grid-template-columns: 1fr; }
@@ -809,9 +859,13 @@ function getAdminHTML(isDryRun: boolean): string {
   <div class="container">
     <header class="header">
       <div class="brand-group">
-        <div class="brand-title">أوبيران لأتمتة الحجوزات</div>
-        <div class="badge-fastpath">⚡ محرك الفحص السريع</div>
-        ${isDryRun ? '<div class="badge-dryrun">🛡️ وضع الاختبار التجريبي DRY-RUN</div>' : ''}
+        <div class="brand-mark">O</div>
+        <div>
+          <div class="brand-title">أوبيران لأتمتة الحجوزات</div>
+          <div class="brand-eyebrow">opran-booking · BMEIA Cairo</div>
+        </div>
+        <span class="badge badge-fastpath">⚡ محرك الفحص السريع</span>
+        ${isDryRun ? '<span class="badge badge-dryrun">🛡️ وضع الاختبار التجريبي DRY-RUN</span>' : ''}
       </div>
       <button class="btn btn-primary" onclick="openModal()">+ إضافة مرشح جديد</button>
     </header>
@@ -819,28 +873,30 @@ function getAdminHTML(isDryRun: boolean): string {
     <div class="grid-metrics">
       <div class="metric-card featured">
         <div class="metric-label">المرشحون النشطون</div>
-        <div class="metric-val" id="val-active">-- / 10</div>
+        <div class="metric-val mono" id="val-active">-- / 10</div>
       </div>
       <div class="metric-card">
-        <div class="metric-label">نافذة الفحص: 07:00 – 18:00 بتوقيت القاهرة</div>
-        <div class="metric-val" id="val-cairo" style="font-size: 18px;">جاري الفحص...</div>
+        <div class="metric-label">نافذة الفحص · 07:00 – 18:00 القاهرة</div>
+        <div class="metric-val" style="font-size: 18px; font-family: 'JetBrains Mono', monospace;" id="val-cairo">جاري الفحص...</div>
+        <div class="livetag" id="window-tag"><span class="dot"></span><span class="txt">خارج النافذة</span></div>
       </div>
       <div class="metric-card">
         <div class="metric-label">فحوصات اليوم</div>
-        <div class="metric-val" id="val-checks">0</div>
+        <div class="metric-val mono" id="val-checks">0</div>
       </div>
       <div class="metric-card">
         <div class="metric-label">الحجوزات الناجحة</div>
-        <div class="metric-val" style="color: var(--success);" id="val-booked">0</div>
+        <div class="metric-val mono" style="color: var(--success);" id="val-booked">0</div>
       </div>
     </div>
 
     <div class="table-card">
       <div class="table-header">
         <h2>قائمة مرشحي الحجز</h2>
+        <span class="livetag" style="margin:0;"><span class="dot"></span><span class="txt">تحديث تلقائي 10 ثوانٍ</span></span>
       </div>
-      <div class="table-wrapper">
-        <table class="table table-striped table-hover align-middle mb-0">
+      <div class="table-wrap">
+        <table>
           <thead>
             <tr>
               <th>اسم المرشح</th>
@@ -851,20 +907,24 @@ function getAdminHTML(isDryRun: boolean): string {
             </tr>
           </thead>
           <tbody id="client-rows">
-            <tr><td colspan="5"><div class="skeleton" style="height: 16px; border-radius: 4px;"></div></td></tr>
-            <tr><td colspan="5"><div class="skeleton" style="height: 16px; border-radius: 4px;"></div></td></tr>
-            <tr><td colspan="5"><div class="skeleton" style="height: 16px; border-radius: 4px;"></div></td></tr>
+            <tr><td colspan="5"><div class="skeleton" style="height: 16px;"></div></td></tr>
+            <tr><td colspan="5"><div class="skeleton" style="height: 16px;"></div></td></tr>
+            <tr><td colspan="5"><div class="skeleton" style="height: 16px;"></div></td></tr>
           </tbody>
         </table>
       </div>
     </div>
+
+    <div class="sysline">OPRAN-BOOKING / JOBLOCKDO / CRON EVERY MINUTE / CAIRO 07:00–18:00</div>
   </div>
 
   <!-- Modal -->
   <div class="modal-backdrop" id="client-modal">
-    <div class="modal modal-content" style="max-width: 640px;">
-      <div class="modal-title" id="client-modal-title">إضافة مرشح جديد للنظام</div>
-      <button type="button" class="btn-close" aria-label="إغلاق" onclick="closeModal()"></button>
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title" id="client-modal-title">إضافة مرشح جديد للنظام</div>
+        <button type="button" class="btn-close" aria-label="إغلاق" onclick="closeModal()">✕</button>
+      </div>
       <div class="modal-body">
         <div class="alert alert-danger d-none" id="client-form-error" role="alert"></div>
       <form id="add-client-form">
@@ -885,7 +945,7 @@ function getAdminHTML(isDryRun: boolean): string {
             <option value="Master_PhD">ماجستير / دكتوراه / منح دراسية</option>
           </select>
         </div>
-        <div class="form-group" style="background: rgba(122,92,255,0.08); border: 1px solid var(--border-accent); border-radius: 8px; padding: 12px 14px; font-size: 13px; color: var(--text-muted);">
+        <div class="global-rules">
           ⏰ قواعد المواعيد موحّدة لجميع الطلبات: الفحص يوميًا من 07:00 حتى 18:00 بتوقيت القاهرة، والطلب يبقى نشطًا حتى إتمام الحجز أو الإلغاء.
         </div>
         <div class="form-grid">
@@ -973,7 +1033,6 @@ function getAdminHTML(isDryRun: boolean): string {
       </div>
     </div>
   </div>
-
   <script>
     let editingClientId = null;
 
@@ -1070,6 +1129,11 @@ function getAdminHTML(isDryRun: boolean): string {
         const res = await fetch('/api/status');
         const data = await res.json();
         document.getElementById('val-active').innerText = data.activeJobs + ' / 10';
+        const wt = document.getElementById('window-tag');
+        if (wt) {
+          wt.classList.toggle('on', data.cairoTime.isWithinWindow);
+          wt.querySelector('.txt').textContent = data.cairoTime.isWithinWindow ? 'داخل نافذة الفحص — الفحص مفعّل' : 'خارج نافذة الفحص';
+        }
         document.getElementById('val-cairo').innerText = data.cairoTime.formattedCairoTime + (data.cairoTime.isWithinWindow ? ' (داخل النافذة)' : ' (خارج النافذة)');
         document.getElementById('val-checks').innerText = data.metricsToday.total_checks || 0;
         document.getElementById('val-booked').innerText = data.metricsToday.bookings_completed || 0;
@@ -1118,3 +1182,4 @@ function getAdminHTML(isDryRun: boolean): string {
 </body>
 </html>`;
 }
+
