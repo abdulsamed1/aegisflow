@@ -338,6 +338,19 @@ test("Dashboard: premium assets are present", async () => {
   assert.ok(html.includes("empty-state"), "Composed empty state must exist");
 });
 
+test("Dashboard: CRUD affordances wired", async () => {
+  const env = createMockEnv();
+  const res = await worker.fetch(new Request("https://opran-booking.local/"), env, {} as any);
+  const html = await res.text();
+
+  assert.ok(html.includes("openEditModal"), "Edit mode must be wired to the shared modal");
+  assert.ok(html.includes("deleteClient"), "Delete action must be wired");
+  assert.ok(html.includes("confirm("), "Delete must require native confirmation");
+  assert.ok(html.includes("client-form-error"), "Inline form error box must exist");
+  assert.ok(html.includes("empty-state"), "Composed empty state must exist");
+  assert.ok(!html.includes("فشل الحفظ"), "Legacy alert-based form error must be removed");
+});
+
 test("API Endpoint: PUT /api/clients/:id rejects missing field with 400", async () => {
   const env = createMockEnv();
   const createReq = new Request("https://opran-booking.local/api/clients", {
