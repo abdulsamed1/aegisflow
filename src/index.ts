@@ -1,5 +1,5 @@
 import { scanAvailability } from "./scanner";
-import { getCairoTimeInfo, listMondaysInRange, SCHEDULER_PICK_QUERY } from "./scheduler";
+import { getCairoTimeInfo, rollingMondays, SCHEDULER_PICK_QUERY } from "./scheduler";
 import { sendTelegramNotification } from "./telegram";
 import { JobLockDO } from "./lock";
 import { encryptPII, decryptPII, maskPassport } from "./crypto";
@@ -94,6 +94,15 @@ export default {
               jobId: c.job_id,
               firstName: await decryptPII(c.first_name_enc, secret),
               lastName: await decryptPII(c.last_name_enc, secret),
+              familyNameAtBirth: await decryptPII(c.family_name_at_birth_enc, secret),
+              placeOfBirth: c.place_of_birth,
+              countryOfBirth: c.country_of_birth,
+              nationalityAtBirth: c.nationality_at_birth,
+              street: await decryptPII(c.address_street_enc, secret),
+              postalCode: await decryptPII(c.address_postal_code_enc, secret),
+              city: await decryptPII(c.address_city_enc, secret),
+              passportIssueDate: c.passport_issue_date,
+              passportIssuingCountry: c.passport_issuing_country,
               gender: c.gender,
               dob: c.dob,
               nationality: c.nationality,
@@ -114,13 +123,36 @@ export default {
 
       // API: Add Client
       if (path === "/api/clients" && request.method === "POST") {
-        const body: any = await request.json();
+        const body: any = await request.json().catch(() => null);
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+          return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
+
         const secret = requireSecret(env);
         if (!secret) return secretErrorResponse();
+
+        const requiredFields = ["firstName", "lastName", "passportNumber", "passportExpiry", "dob",
+          "email", "phone", "category", "familyNameAtBirth", "placeOfBirth", "countryOfBirth",
+          "nationalityAtBirth", "street", "postalCode", "city", "passportIssueDate", "passportIssuingCountry"];
+        const missing = requiredFields.find((f) => typeof body[f] !== "string" || !body[f].trim());
+        if (missing) {
+          return new Response(JSON.stringify({ error: `Missing required field: ${missing}` }), {
+            status: 400,
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
+
         const clientId = `client_${Date.now()}`;
 
         const firstNameEnc = await encryptPII(body.firstName, secret);
         const lastNameEnc = await encryptPII(body.lastName, secret);
+        const familyNameAtBirthEnc = await encryptPII(body.familyNameAtBirth, secret);
+        const streetEnc = await encryptPII(body.street, secret);
+        const postalCodeEnc = await encryptPII(body.postalCode, secret);
+        const cityEnc = await encryptPII(body.city, secret);
         const passportEnc = await encryptPII(body.passportNumber, secret);
         const emailEnc = await encryptPII(body.email, secret);
         const phoneEnc = await encryptPII(body.phone, secret);
@@ -128,8 +160,8 @@ export default {
         const calendarId = body.category === "Master_PhD" ? 44279679 : 44281520;
 
         await env.DB.prepare(
-          `INSERT INTO clients (id, first_name_enc, last_name_enc, gender, dob, nationality, passport_number_enc, passport_expiry, email_enc, phone_enc, category, calendar_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO clients (id, first_name_enc, last_name_enc, gender, dob, nationality, passport_number_enc, passport_expiry, email_enc, phone_enc, family_name_at_birth_enc, place_of_birth, country_of_birth, nationality_at_birth, address_street_enc, address_postal_code_enc, address_city_enc, passport_issue_date, passport_issuing_country, category, calendar_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
           .bind(
             clientId,
@@ -142,13 +174,24 @@ export default {
             body.passportExpiry,
             emailEnc,
             phoneEnc,
+            familyNameAtBirthEnc,
+            body.placeOfBirth,
+            body.countryOfBirth,
+            body.nationalityAtBirth,
+            streetEnc,
+            postalCodeEnc,
+            cityEnc,
+            body.passportIssueDate,
+            body.passportIssuingCountry,
             body.category,
             calendarId
           )
           .run();
 
         // Auto-create matching Job record
+        // ponytail: legacy per-client columns written once with global constants — never read by the scheduler
         const jobId = `job_${Date.now()}`;
+        const allDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
         await env.DB.prepare(
           `INSERT INTO jobs (id, client_id, enabled, status, start_date, end_date, allowed_days, preferred_time_start, preferred_time_end)
            VALUES (?, ?, 1, 'ACTIVE', ?, ?, ?, ?, ?)`
@@ -156,11 +199,11 @@ export default {
           .bind(
             jobId,
             clientId,
-            body.startDate || "2026-09-01",
-            body.endDate || "2026-10-31",
-            JSON.stringify(body.allowedDays || ["Monday", "Tuesday", "Wednesday", "Thursday"]),
-            body.timeStart || "08:00",
-            body.timeEnd || "16:00"
+            new Date().toISOString().slice(0, 10),
+            new Date(Date.now() + 8 * 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+            JSON.stringify(allDays),
+            "07:00",
+            "18:00"
           )
           .run();
 
@@ -209,9 +252,10 @@ export default {
     }
   },
 
-  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    // Operator decision 2026-08-19: no fixed slot-release schedule exists on the portal,
-    // so scanning runs 24/7 and any appearing slot is captured at any time.
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext, now: Date = new Date()): Promise<void> {
+    // Global Cairo operating window (D5 amended 2026-08-20): 07:00-18:00, every day incl. Friday.
+    // Exit before any DB read — outside the window there is nothing to scan.
+    if (!getCairoTimeInfo(now).isWithinWindow) return;
 
     // Circuit Breaker Check (NFR-2)
     const metricsToday = await env.DB.prepare(
@@ -240,13 +284,11 @@ export default {
       return;
     }
 
+    // Rolling 8-week horizon (AD-11): current week + 7 forward weeks, same for every job.
+    // Requests stay ACTIVE until booked or cancelled — there is no date-based expiry (D8).
+    const mondays = rollingMondays();
+
     for (const job of jobs) {
-      // Scan only weeks inside the client's accepted date range (rules window)
-      const mondays = listMondaysInRange(job.start_date, job.end_date);
-      if (mondays.length === 0) {
-        await env.DB.prepare(`UPDATE jobs SET status = 'EXPIRED' WHERE id = ?`).bind(job.id).run();
-        continue;
-      }
 
       let slotMonday: string | null = null;
       for (const mondayStr of mondays) {
@@ -319,6 +361,15 @@ export default {
         id: job.client_id,
         firstName: await decryptPII(job.first_name_enc, secret),
         lastName: await decryptPII(job.last_name_enc, secret),
+        familyNameAtBirth: await decryptPII(job.family_name_at_birth_enc, secret),
+        placeOfBirth: job.place_of_birth,
+        countryOfBirth: job.country_of_birth,
+        nationalityAtBirth: job.nationality_at_birth,
+        street: await decryptPII(job.address_street_enc, secret),
+        postalCode: await decryptPII(job.address_postal_code_enc, secret),
+        city: await decryptPII(job.address_city_enc, secret),
+        passportIssueDate: job.passport_issue_date,
+        passportIssuingCountry: job.passport_issuing_country,
         gender: job.gender,
         dob: job.dob,
         nationality: job.nationality,
@@ -360,7 +411,10 @@ export default {
         }
       } else if (httpRes.success) {
         console.log(`Booking completed for Job ${job.id}. Ref: ${httpRes.referenceId}`);
-        await env.DB.prepare(`UPDATE jobs SET status = 'BOOKED' WHERE id = ?`).bind(job.id).run();
+        // Guard: a cancel during the in-flight booking must win (D8 terminal semantics)
+        await env.DB.prepare(
+          `UPDATE jobs SET status = 'BOOKED' WHERE id = ? AND status = 'ACTIVE' AND enabled = 1`
+        ).bind(job.id).run();
         await doStub.fetch("https://lock/seal");
         await env.DB.prepare(
           `INSERT INTO daily_metrics (date, bookings_completed) VALUES (DATE('now'), 1)
@@ -629,7 +683,7 @@ function getAdminHTML(isDryRun: boolean): string {
         <div class="metric-val" id="val-active">-- / 10</div>
       </div>
       <div class="metric-card">
-        <div class="metric-label">الفحص يعمل 24/7 — توقيت القاهرة</div>
+        <div class="metric-label">نافذة الفحص: 07:00 – 18:00 بتوقيت القاهرة</div>
         <div class="metric-val" id="val-cairo" style="font-size: 18px;">جاري الفحص...</div>
       </div>
       <div class="metric-card">
@@ -689,35 +743,41 @@ function getAdminHTML(isDryRun: boolean): string {
             <option value="Master_PhD">ماجستير / دكتوراه / منح دراسية</option>
           </select>
         </div>
+        <div class="form-group" style="background: rgba(59,130,246,0.08); border: 1px solid var(--border-accent); border-radius: 8px; padding: 12px 14px; font-size: 13px; color: var(--text-muted);">
+          ⏰ قواعد المواعيد موحّدة لجميع الطلبات: الفحص يوميًا من 07:00 حتى 18:00 بتوقيت القاهرة، والطلب يبقى نشطًا حتى إتمام الحجز أو الإلغاء.
+        </div>
         <div class="form-grid">
           <div class="form-group">
-            <label>أقرب تاريخ مقبول</label>
-            <input type="date" id="startDate" value="2026-09-01" required>
+            <label>اسم العائلة عند الميلاد</label>
+            <input type="text" id="familyNameAtBirth" required>
           </div>
           <div class="form-group">
-            <label>آخر تاريخ مقبول</label>
-            <input type="date" id="endDate" value="2026-10-31" required>
+            <label>مكان الميلاد</label>
+            <input type="text" id="placeOfBirth" required placeholder="القاهرة">
           </div>
         </div>
         <div class="form-grid">
           <div class="form-group">
-            <label>من ساعة (توقيت القاهرة)</label>
-            <input type="time" id="timeStart" value="08:00">
+            <label>بلد الميلاد</label>
+            <input type="text" id="countryOfBirth" required placeholder="مصر">
           </div>
           <div class="form-group">
-            <label>إلى ساعة (توقيت القاهرة)</label>
-            <input type="time" id="timeEnd" value="16:00">
+            <label>الجنسية عند الميلاد</label>
+            <input type="text" id="nationalityAtBirth" required placeholder="مصري">
           </div>
         </div>
         <div class="form-group">
-          <label>الأيام المقبولة (الجمعة مغلق)</label>
-          <div style="display:flex; flex-wrap:wrap; gap:10px;">
-            <label style="margin:0;"><input type="checkbox" class="day-check" value="Monday" checked> الإثنين</label>
-            <label style="margin:0;"><input type="checkbox" class="day-check" value="Tuesday" checked> الثلاثاء</label>
-            <label style="margin:0;"><input type="checkbox" class="day-check" value="Wednesday" checked> الأربعاء</label>
-            <label style="margin:0;"><input type="checkbox" class="day-check" value="Thursday" checked> الخميس</label>
-            <label style="margin:0;"><input type="checkbox" class="day-check" value="Saturday"> السبت</label>
-            <label style="margin:0;"><input type="checkbox" class="day-check" value="Sunday"> الأحد</label>
+          <label>الشارع / العنوان</label>
+          <input type="text" id="street" required placeholder="١٢ شارع التحرير">
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>الرمز البريدي</label>
+            <input type="text" id="postalCode" required placeholder="11511" style="direction: ltr;">
+          </div>
+          <div class="form-group">
+            <label>المدينة</label>
+            <input type="text" id="city" required placeholder="القاهرة">
           </div>
         </div>
         <div class="form-grid">
@@ -728,6 +788,16 @@ function getAdminHTML(isDryRun: boolean): string {
           <div class="form-group">
             <label>تاريخ انتهاء الجواز</label>
             <input type="date" id="passportExpiry" required>
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>تاريخ إصدار الجواز</label>
+            <input type="date" id="passportIssueDate" required>
+          </div>
+          <div class="form-group">
+            <label>جهة إصدار الجواز</label>
+            <input type="text" id="passportIssuingCountry" required placeholder="مصر">
           </div>
         </div>
         <div class="form-grid">
@@ -775,6 +845,15 @@ function getAdminHTML(isDryRun: boolean): string {
       const payload = {
         firstName: document.getElementById('firstName').value,
         lastName: document.getElementById('lastName').value,
+        familyNameAtBirth: document.getElementById('familyNameAtBirth').value,
+        placeOfBirth: document.getElementById('placeOfBirth').value,
+        countryOfBirth: document.getElementById('countryOfBirth').value,
+        nationalityAtBirth: document.getElementById('nationalityAtBirth').value,
+        street: document.getElementById('street').value,
+        postalCode: document.getElementById('postalCode').value,
+        city: document.getElementById('city').value,
+        passportIssueDate: document.getElementById('passportIssueDate').value,
+        passportIssuingCountry: document.getElementById('passportIssuingCountry').value,
         category: document.getElementById('category').value,
         passportNumber: document.getElementById('passportNumber').value,
         passportExpiry: document.getElementById('passportExpiry').value,
@@ -782,18 +861,18 @@ function getAdminHTML(isDryRun: boolean): string {
         gender: document.getElementById('gender').value,
         email: document.getElementById('email').value,
         phone: document.getElementById('phone').value,
-        nationality: 'Egyptian',
-        startDate: document.getElementById('startDate').value,
-        endDate: document.getElementById('endDate').value,
-        timeStart: document.getElementById('timeStart').value,
-        timeEnd: document.getElementById('timeEnd').value,
-        allowedDays: Array.from(document.querySelectorAll('.day-check:checked')).map(cb => cb.value)
+        nationality: 'Egyptian'
       };
-      await fetch('/api/clients', {
+      const res = await fetch('/api/clients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        alert('فشل الحفظ: ' + (err && err.error ? err.error : res.status));
+        return;
+      }
       closeModal();
       loadDashboard();
     };
@@ -803,7 +882,7 @@ function getAdminHTML(isDryRun: boolean): string {
         const res = await fetch('/api/status');
         const data = await res.json();
         document.getElementById('val-active').innerText = data.activeJobs + ' / 10';
-        document.getElementById('val-cairo').innerText = data.cairoTime.formattedCairoTime + ' (فحص مستمر)';
+        document.getElementById('val-cairo').innerText = data.cairoTime.formattedCairoTime + (data.cairoTime.isWithinWindow ? ' (داخل النافذة)' : ' (خارج النافذة)');
         document.getElementById('val-checks').innerText = data.metricsToday.total_checks || 0;
         document.getElementById('val-booked').innerText = data.metricsToday.bookings_completed || 0;
 
@@ -822,15 +901,18 @@ function getAdminHTML(isDryRun: boolean): string {
             <td>\${c.category === 'Master_PhD' ? 'ماجستير / دكتوراه' : 'بكالوريوس'}</td>
             <td><span class="mono">\${c.maskedPassport}</span></td>
             <td>
-              <span class="status-pill \${c.jobEnabled ? 'status-active' : 'status-paused'}">
-                \${c.jobEnabled ? 'نشط ⚡' : 'متوقف ⏸'}
-              </span>
+              \${c.status === 'CANCELLED'
+                ? '<span class="status-pill status-paused">ملغي 🚫</span>'
+                : c.status === 'BOOKED'
+                  ? '<span class="status-pill status-active">تم الحجز ✅</span>'
+                  : \`<span class="status-pill \${c.jobEnabled ? 'status-active' : 'status-paused'}">\${c.jobEnabled ? 'نشط ⚡' : 'متوقف ⏸'}</span>\`}
             </td>
             <td>
-              \${c.jobId ? \`
+              \${c.jobId && c.status !== 'CANCELLED' && c.status !== 'BOOKED' ? \`
                 <button class="btn btn-sm btn-secondary" onclick="toggleJob('\${c.jobId}', '\${c.jobEnabled ? 'pause' : 'activate'}')">
                   \${c.jobEnabled ? 'إيقاف مؤقت' : 'تفعيل'}
                 </button>
+                <button class="btn btn-sm btn-secondary" onclick="toggleJob('\${c.jobId}', 'cancel')" style="color: var(--danger);">إلغاء</button>
               \` : ''}
             </td>
           </tr>

@@ -101,9 +101,9 @@ CREATE TABLE IF NOT EXISTS jobs (
     )) DEFAULT 'DRAFT',
     start_date TEXT NOT NULL,
     end_date TEXT NOT NULL,
-    allowed_days TEXT NOT NULL, -- JSON Array: ["Monday", "Wednesday"]
-    preferred_time_start TEXT DEFAULT '08:00',
-    preferred_time_end TEXT DEFAULT '16:00',
+    allowed_days TEXT NOT NULL, -- JSON Array, all 7 days (legacy — written once, never read)
+    preferred_time_start TEXT DEFAULT '07:00',
+    preferred_time_end TEXT DEFAULT '18:00',
     -- NOTE (2026-08-20, D5/D8 + AD-11): the five columns above are LEGACY per-client
     -- rule columns. The scheduler never reads them; they are written once at job
     -- creation with global constants (window 07:00–18:00, all days, 8-week horizon)

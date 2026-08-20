@@ -1,8 +1,8 @@
 # QA Test Automation Summary — opran-booking
 
-> **Generated:** 2026-08-20 (updated after the global-window decisions D5/D8 + AD-11)  
+> **Generated:** 2026-08-20 (updated after the global-window refactor — D5/D8/AD-11 implemented)  
 > **Framework:** Node.js Native Test Runner + `tsx` (`node --import tsx --test`)  
-> **Status:** 20 tests PASSING (15 unit + 5 Miniflare integration), `tsc --noEmit` clean
+> **Status:** 33 tests PASSING (28 unit + 5 Miniflare integration), `tsc --noEmit` clean
 
 ---
 
@@ -21,12 +21,10 @@
 ### Scheduler (`test/scheduler.test.ts`)
 - [x] Cairo time info returns weekday names for display.
 - [x] Monday timestamp string matches BMEIA `M/d/yyyy h:mm:ss tt` format.
-- [x] Week-range scan helper returns Mondays inside a given window. *(Being replaced — see below: the 2026-08-20 decisions remove per-client date windows.)*
-
-> **2026-08-20 decisions (D5 amended, D8, AD-11) — pending test updates (land with the refactor):**
-> - [ ] Global-window gating: tick inside 07:00–18:00 Cairo proceeds; outside exits immediately (pure function tested directly, every day incl. Friday).
-> - [ ] Rolling horizon: current week + 7 forward Mondays (8-week global constant) — replaces the legacy week-range test.
-> - [ ] No date-expiry: nothing in the scheduler sets `EXPIRED` (D8).
+- [x] Global-window gating: Friday included, inside/outside the 07:00–18:00 Cairo window, 18:00 boundary excluded (D5 amended).
+- [x] Scheduled tick exits before any DB read outside the window (proxy-DB discriminating test, `scheduled` level).
+- [x] Rolling horizon: `rollingMondays` returns the current week plus 7 forward Mondays (8-week global constant) and crosses year boundaries (AD-11).
+- [x] No date-expiry path: `listMondaysInRange` deleted; nothing in the scheduler sets `EXPIRED` (D8).
 
 ### Crypto & Masking (`test/crypto.test.ts`)
 - [x] AES-256-GCM PII encrypt/decrypt round-trip.
@@ -38,19 +36,20 @@
 
 ### API Contracts (`test/api.test.ts`)
 - [x] `GET /api/status` returns operational metrics (mock D1).
-- [x] `POST /api/clients` creates encrypted client + job (mock D1).
+- [x] `POST /api/clients` creates encrypted client + job with the complete profile (mock D1).
+- [x] `POST /api/clients` returns 400 naming the missing field (new and original required fields), on null bodies and non-string values — nothing written.
+- [x] `POST /api/jobs/:id/cancel` marks the job `CANCELLED` + disabled (terminal-state contract).
+- [x] Admin HTML carries the 9 new profile fields + global-rules block + cancel action, and no per-client schedule controls.
 - [x] `GET /` serves the Arabic admin dashboard (mock env).
 
 ### Miniflare Integration (`test/integration.miniflare.test.ts` — added 2026-08-19)
 - [x] Client creation encrypts PII at rest in real D1 and returns masked data on read.
+- [x] New profile fields stored encrypted per class (family name at birth, street, postal code, city) and plaintext per class (place of birth, passport issue date) — verified against real D1 rows.
+- [x] Legacy job columns written once with global constants (07:00/18:00, all 7 days).
 - [x] Missing `PII_ENCRYPTION_KEY` fails closed with 500 (POST and GET).
-- [x] Scheduler pick query returns oldest-outstanding jobs and excludes backoff jobs (AD-7 fairness).
+- [x] Scheduler pick query returns oldest-outstanding jobs, excludes backoff jobs, and never selects the legacy per-client date columns (AD-7 fairness + D8/AD-11).
 - [x] Durable Object lock lifecycle (acquire, reject, release, seal).
 - [x] Stale lock (crashed execution) expires and allows takeover after TTL.
-
-> **2026-08-20 decisions — pending integration-test updates (land with the refactor):**
-> - [ ] New client fields (birth, address, passport-issue) encrypt at rest per the field-class convention.
-> - [ ] Job creation writes the global-constant legacy columns (window 07:00–18:00, all days, 8-week horizon) and the scheduler no longer reads them.
 
 ---
 
@@ -68,8 +67,8 @@
 ## 3. Execution Benchmark (latest run)
 
 ```text
-ℹ tests 20
-ℹ pass 20
+ℹ tests 33
+ℹ pass 33
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
