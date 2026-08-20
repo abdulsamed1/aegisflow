@@ -48,3 +48,61 @@ test("E2E Workflow: Dashboard HTML serves without fast-path latency hype", async
   assert.ok(!html.includes("val-cairo"), "Cairo time card must be removed from dashboard");
   assert.ok(!html.includes("<10ms"), "Dashboard must not advertise unverified latency claims");
 });
+
+test("E2E Workflow: Complete Candidate Portal Pipeline & Step 3 Payload Generation", async () => {
+  const clientObj: DecryptedClientData = {
+    id: "client_e2e_full",
+    firstName: "Ahmed",
+    lastName: "Hassan",
+    gender: "Male",
+    dob: "1998-05-15",
+    nationality: "Egyptian",
+    passportNumber: "A99887766",
+    passportExpiry: "2030-05-15",
+    email: "ahmed.hassan@example.com",
+    phone: "+201000000000",
+    category: "Bachelor",
+    calendarId: 44281520,
+    street: "123 Nile Street",
+    postalCode: "11511",
+    city: "Cairo",
+    placeOfBirth: "Cairo",
+    passportIssueDate: "2020-05-15",
+    passportIssuer: "Egyptian Passport Authority"
+  };
+
+  // 1. Test Date Formatting for BMEIA Portal (MM/DD/YYYY)
+  const { formatDateForPortal, buildStep3DetailsPayload, parseBookingConfirmationReference } = await import("../src/booking-http");
+  assert.strictEqual(formatDateForPortal("1998-05-15"), "05/15/1998");
+  assert.strictEqual(formatDateForPortal("2030-05-15"), "05/15/2030");
+
+  // 2. Build Full 18-Field Step 3 Payload
+  const step3PayloadString = buildStep3DetailsPayload(clientObj, "C6SP");
+  const step3Payload = Object.fromEntries(new URLSearchParams(step3PayloadString));
+  assert.strictEqual(step3Payload.LastName, "Hassan");
+  assert.strictEqual(step3Payload.FirstName, "Ahmed");
+  assert.strictEqual(step3Payload.DOB, "05/15/1998");
+  assert.strictEqual(step3Payload.PassportNumber, "A99887766");
+  assert.strictEqual(step3Payload.PostalCode, "11511");
+  assert.strictEqual(step3Payload.City, "Cairo");
+  assert.strictEqual(step3Payload.CaptchaText, "C6SP");
+  assert.strictEqual(step3Payload.Consent, "true");
+
+
+  // 3. Test Booking Reference Extraction from Confirmation Page HTML
+  const mockConfirmationHTML = `
+    <html>
+      <body>
+        <div class="confirmation-box">
+          <h2>Terminreservierung - Booking Confirmed</h2>
+          <p>Ihre Reservierungsnummer: <strong>GESX-KAIRO-20260821-998877</strong></p>
+          <p>Name: Ahmed Hassan</p>
+          <p>Date: 10/05/2026 10:00 AM</p>
+        </div>
+      </body>
+    </html>
+  `;
+  const refId = parseBookingConfirmationReference(mockConfirmationHTML);
+  assert.strictEqual(refId, "GESX-KAIRO-20260821-998877");
+});
+

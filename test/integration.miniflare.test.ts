@@ -456,3 +456,40 @@ test("Integration: DELETE succeeds when the client has scheduler audit rows (FK 
   assert.strictEqual(auditRow.client_id, null, "Audit client_id FK must be detached");
   assert.strictEqual(auditRow.job_id, null, "Audit job_id FK must be detached");
 });
+
+test("Integration: invalid category value is rejected by Worker API with 400, and enforced by D1 SQLite CHECK constraint", async () => {
+  const mf = await startWorker();
+
+  // 1. Worker API endpoint validation: returns 400 Bad Request
+  const res = await mf.dispatchFetch("https://opran.local/api/clients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      firstName: "Ahmed", lastName: "Hassan", category: "OtherCategory",
+      familyNameAtBirth: "Hassan", placeOfBirth: "Cairo", countryOfBirth: "Egypt",
+      nationalityAtBirth: "Egyptian", street: "15 Tahrir Square", postalCode: "11511",
+      city: "Cairo", passportIssueDate: "2018-06-15", passportIssuingCountry: "Egypt",
+      passportNumber: "A12345678", passportExpiry: "2030-01-01",
+      dob: "1990-05-05", gender: "Male", nationality: "Egyptian",
+      email: "ahmed@example.com", phone: "+201000000000"
+    })
+  });
+
+  assert.strictEqual(res.status, 400, "Worker API returns 400 Bad Request on invalid category");
+  const body = await res.json() as any;
+  assert.strictEqual(body.error, "Invalid category. Must be 'Bachelor' or 'Master_PhD'");
+
+  // 2. Direct D1 Database schema enforcement: SQL INSERT with invalid category throws CHECK constraint error
+  const db = await mf.getD1Database("DB");
+  await assert.rejects(
+    async () => {
+      await db.prepare(
+        `INSERT INTO clients (id, first_name_enc, last_name_enc, gender, dob, nationality, passport_number_enc, passport_expiry, email_enc, phone_enc, family_name_at_birth_enc, place_of_birth, country_of_birth, nationality_at_birth, address_street_enc, address_postal_code_enc, address_city_enc, passport_issue_date, passport_issuing_country, category, calendar_id)
+         VALUES ('c_inv', 'enc', 'enc', 'Male', '1990-01-01', 'Egyptian', 'enc', '2030-01-01', 'enc', 'enc', 'enc', 'Cairo', 'Egypt', 'Egyptian', 'enc', 'enc', 'enc', '2018-01-01', 'Egypt', 'InvalidCategory', 12345)`
+      ).run();
+    },
+    /CHECK constraint failed/i,
+    "D1 database schema must enforce CHECK constraint on category column"
+  );
+});
+
