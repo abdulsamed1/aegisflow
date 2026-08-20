@@ -1,8 +1,8 @@
 # UX & UI Specification — Single Operator Admin Panel (opran-booking)
 
-> **Status:** FINAL — amended 2026-08-20 to the shipped premium dashboard (visual source of truth: `docs/implementation-artifacts/spec-spa-crud-premium-ui.md`; code source of truth: `src/index.ts` `getAdminHTML`)
+> **Status:** FINAL — amended 2026-08-20 to v3: **Sentry night + electric lime** (visual source of truth: `docs/implementation-artifacts/spec-spa-crud-premium-ui.md`; design-md inspiration: Sentry via `awesome-design-md` + `designmd.co` + `designmd.app`; code source of truth: `src/index.ts` `getAdminHTML`)
 > **Target Device:** Desktop / Tablet responsive (container max-width 1400px; collapses at 768px and 480px)
-> **Visual Direction:** Premium navy operational dashboard — off-black navy surfaces, a single desaturated blue accent, Alexandria typeface, Bootstrap 5.3 RTL (CSS-only, SRI-pinned). Nothing glassy, nothing gradient-stacked, one accent color.
+> **Visual Direction:** Violet-midnight operational dashboard — purple-night surfaces, violet hairlines, ONE loud electric-lime accent, Alexandria typeface, Bootstrap 5.3 RTL (CSS-only, SRI-pinned). No glass, no gradient stacks, one accent color.
 
 ---
 
@@ -12,6 +12,7 @@
 |---|---|---|
 | 2026-08-19 | v1: glassmorphism direction, Cairo font, tabbed layout (Clients / Audit Log / System Config), 12-state badge matrix, toasts, budget gauge | Original design spec |
 | 2026-08-20 | v2: **premium redesign shipped** — navy token set, Alexandria typography, Bootstrap RTL CSS, single-view layout (no tabs), skeleton/empty/inline-error states, Edit/Delete CRUD actions, shared add/edit modal with keep-passport flow | Operator + redesign story (`spec-spa-crud-premium-ui.md`); v1-only surfaces (Audit Log tab, System Config tab, toasts, budget gauge, filter pills) are **explicitly not shipped** and out of scope — see §8 |
+| 2026-08-20 | v3: **Sentry night + electric lime** — violet-midnight canvas family, one loud lime accent reserved for CTAs/focus/active pills, violet hairlines replace navy, micro-cap metric labels, lime glow on the featured card | Operator redesign decision; inspired by the **Sentry** design.md (discovered via `awesome-design-md`, `designmd.co`, `designmd.app` — purple night `#150f23`/`#1f1633`, hairline `#362d59`, accent `#c2ef4e`) |
 
 The v2 changes supersede v1. Anything in v1 not listed in v2 does not exist in the product and must not be re-introduced without a new decision.
 
@@ -19,39 +20,39 @@ The v2 changes supersede v1. Anything in v1 not listed in v2 does not exist in t
 
 ## 1. Design System
 
-### 1.1 Color Palette (shipped tokens — `src/index.ts` `:root`)
+### 1.1 Color Palette (shipped tokens — `src/index.ts` `:root`, v3 Sentry night)
 
 ```css
 :root {
-  /* Backgrounds — off-black navy family, one family of surfaces */
-  --bg-surface: #0b0f1a;
-  --bg-card: #111726;
-  --bg-card-hover: #161e30;
-  --border: rgba(148, 163, 184, 0.14);
-  --border-accent: rgba(74, 125, 255, 0.35);
+  /* Backgrounds — violet-midnight family, depth by surface ladder, not by shadow */
+  --bg-surface: #150f23;
+  --bg-card: #1f1633;
+  --bg-card-hover: #261d45;
+  --border: rgba(214, 205, 255, 0.10);      /* violet hairline */
+  --border-accent: rgba(194, 239, 78, 0.35);
 
-  /* Accents — ONE brand accent; semantic colors reserved for status pills only */
-  --primary: #4a7dff;
-  --primary-hover: #3b6ae6;
-  --success: #2dd4a7;
-  --warning: #eab308;
-  --danger: #f87171;
+  /* Accents — ONE loud accent: electric lime, reserved for CTA/focus/active pills */
+  --primary: #c2ef4e;
+  --primary-hover: #d3f57a;
+  --primary-ink: #13101f;                    /* near-black text ON the lime */
+  --success: #22c55e; --warning: #f59e0b; --danger: #ef4444;  /* semantic trio, pills only */
 
   /* Text */
-  --text: #e8edf6;
-  --text-muted: #94a3b8;
-  --text-dim: #64748b;
+  --text: #f3eefc;
+  --text-muted: #a89fce;
+  --text-dim: #6d6590;
 
-  /* Elevation — tinted shadows, never pure black */
-  --shadow-card: 0 1px 0 rgba(255,255,255,0.04) inset, 0 12px 32px -16px rgba(3,7,18,0.9);
-  --shadow-accent: 0 8px 24px -10px rgba(74, 125, 255, 0.45);
+  /* Elevation — hairline inset + background-hue tint; the accent glow lives only on the featured card */
+  --shadow-card: 0 1px 0 rgba(255,255,255,0.04) inset, 0 12px 32px -16px rgba(8,5,18,0.85);
+  --shadow-accent: 0 0 24px -8px rgba(194, 239, 78, 0.4);
 }
 ```
 
 Rules:
-- One brand accent (`--primary`). Status colors appear **only** on pills and the featured card's success-dependent metrics — never as decorative gradients.
-- Background atmosphere: two radial tints (primary at top-right, success at bottom-left, ≤ 10% alpha) over `--bg-surface`, plus one fixed SVG-noise grain overlay (`feTurbulence` data-URI, `pointer-events: none`, opacity 0.035). GPU-free; no image assets.
-- Bootstrap dark remap: the document root is `lang="ar" dir="rtl" data-bs-theme="dark"` and `--bs-*` variables point at our tokens, so `.table/.btn/.alert/.form-control` inherit the palette — no Bootstrap default chroma leaks.
+- One loud accent (`--primary` c2ef4e lime). It appears **only** on primary buttons, focus rings, active/brand badges, and the featured card glow — never decoratively. Semantic colors (`success`/`warning`/`danger`) appear **only** on pills.
+- Violet night is the only canvas family; there is no light mode claim, no navy default (v2 navy tokens superseded by v3).
+- Background atmosphere: two radial tints (lime at top-right ≤ 7%, violet at bottom-left ≤ 10%) over `--bg-surface`, plus one fixed SVG-noise grain overlay (`feTurbulence` data-URI, `pointer-events: none`, opacity 0.035). GPU-free; no image assets.
+- Bootstrap dark remap: the document root is `lang="ar" dir="rtl" data-bs-theme="dark"` and `--bs-*` variables point at our tokens; primary buttons are forced to lime-bg + `--primary-ink` text (Bootstrap's default white-on-primary would fail contrast on lime).
 
 ### 1.2 Typography
 
@@ -100,7 +101,8 @@ Rules:
 - Metric card 2: **نافذة الفحص** — label states the global window (`07:00 – 18:00 بتوقيت القاهرة`); the value is the live Cairo time (18px) with `(داخل النافذة)` / `(خارج النافذة)` state tag. Refreshes every 10s.
 - Metric card 3: **فحوصات اليوم** — `metricsToday.total_checks`.
 - Metric card 4: **الحجوزات الناجحة** — `metricsToday.bookings_completed`, value in `--success`.
-- Numbers render in `JetBrains Mono` (fixed-width by face); metric values use `--text` (near-white) over muted labels; the featured card's number carries the accent glow.
+- Metric labels are micro-caps: 11px / 600-weight / `0.04em` letter-spacing in `--text-muted` (Sentry `micro-cap` treatment; Arabic has no uppercase, so it's tracking + weight).
+- Numbers render in `JetBrains Mono` (fixed-width by face); metric values use `--text` (near-white) over muted labels; the featured card's number carries the lime glow.
 
 ### Screen 2: Client Table
 
@@ -168,10 +170,10 @@ Shipped pill set — two variants only, deliberately:
 
 | Pill | Class | Shown for |
 |---|---|---|
-| «نشط ⚡» | `status-active` (success bg/text) | job `enabled=1`, status not terminal |
-| «متوقف ⏸» | `status-paused` (warning bg/text) | job `enabled=0`, status not terminal |
-| «تم الحجز ✅» | `status-active` (success) | `BOOKED` — terminal |
-| «ملغي 🚫» | `status-paused` (warning) | `CANCELLED` — terminal |
+| «نشط ⚡» | `status-active` — **lime** pill (bg `rgba(194,239,78,.12)`, text `var(--primary)`) | job `enabled=1`, status not terminal |
+| «متوقف ⏸» | `status-paused` — amber pill (`warning-bg`/`--warning`) | job `enabled=0`, status not terminal |
+| «تم الحجز ✅» | `status-active` — lime pill | `BOOKED` — terminal |
+| «ملغي 🚫» | `status-paused` — amber pill | `CANCELLED` — terminal |
 
 The v1 12-states-of-the-state-machine badge matrix (colors/icons per `DRAFT`…`EXPIRED`) is **not shipped**: the dashboard collapses behavior to the four operator-meaningful conditions. Internal scheduler states (`ACTIVE`, `SEARCHING`, `BOOKING`…) remain in the domain model (see `docs/prd.md` §4) but are not rendered as per-state visuals.
 
@@ -204,8 +206,8 @@ Not shipped (v1 aspirational items removed): toasts, budget gauge, filter pills,
 
 ## 6. Do's and Don'ts
 
-**Do** — keep one accent color; use the navy token family; let Bootstrap own forms/tables/modals but remap `--bs-*` to our tokens; use Alexandria for everything text, JetBrains Mono for data; show the global window; mask the passport; keep add/edit in one modal; reload on 10s.
-**Don't** — add a second accent or gradient stacks; use glassmorphism (`backdrop-filter` only on the modal backdrop); add Inter/Roboto/Cairo/extra webfonts; render per-client schedule controls (global rules only); ship a Bootstrap JS bundle or any new npm dependency; show plaintext passports or PII in logs; re-introduce tabs, toasts, budget gauges, or the 12-state badge matrix (v1) without an operator decision.
+**Do** — keep the violet-night token family and one loud lime accent; let Bootstrap own forms/tables/modals but remap `--bs-*` to our tokens; use Alexandria for everything text, JetBrains Mono for data; show the global window; mask the passport; keep add/edit in one modal; reload on 10s.
+**Don't** — add a second accent or gradient stacks; return to a navy/blue-default look (v2 superseded); use glassmorphism (`backdrop-filter` only on the modal backdrop); add Inter/Roboto/Cairo/extra webfonts; render per-client schedule controls (global rules only); ship a Bootstrap JS bundle or any new npm dependency; show plaintext passports or PII in logs; re-introduce tabs, toasts, budget gauges, or the 12-state badge matrix (v1) without an operator decision.
 
 ---
 
