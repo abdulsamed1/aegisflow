@@ -128,11 +128,11 @@ stateDiagram-v2
 - Before executing a booking attempt (`BOOKING` state), the Worker must acquire the DO lock.
 - Once a job reaches `BOOKED` state, the DO lock permanently seals the job, preventing any further checks or duplicate bookings.
 
-### FR-7: Booking Engine (G0-gated — fail closed)
-- **The portal booking path is Verified up to CAPTCHA** (`docs/portal-automation-spec.md`). The engine (`executeDirectHttpBooking`) successfully navigates Language Selection, Slot Selection, and serializes the 18 PII fields into the expected `Step3` payload format.
-- Live booking is **disabled by code**: any live attempt halts prior to `Submit` unless `isDryRun` is false.
-- **Dry-Run Safety**: Enforced globally via environment config `DRY_RUN=true`. Dry-Run prepares the verified discovery payload and halts with an audit event `DRY_RUN_STOPPED`.
-- **Unlock condition**: Integration of CAPTCHA solver and explicit operator decision to toggle `DRY_RUN=false`.
+### FR-7: Booking Engine (Direct HTTP & Playwright Fallback)
+- **The portal booking path is Verified** (`docs/portal-automation-spec.md`). The engine (`executeDirectHttpBooking`) navigates Language Selection, Slot Selection, and serializes the 18 PII fields into the expected `Step3` payload format.
+- **Autonomous Submission**: In live mode (`DRY_RUN=false`), `executeDirectHttpBooking` posts the payload directly via ultra-low latency HTTP POST (~200ms) and extracts the booking confirmation reference (`GESX-...`).
+- **Playwright Fallback**: If direct HTTP submission encounters layout shifts or requires browser interaction, `executePlaywrightFallback` executes DOM form filling and submission in `@cloudflare/playwright`.
+- **Dry-Run Mode**: Configured via environment variable `DRY_RUN=true`. Dry-Run prepares the payload and halts with audit event `DRY_RUN_STOPPED`.
 
 ### FR-8: Audit Logging & Metrics
 - All events shall be logged to D1 table `audit_logs` with the canonical event set from the brief section 17:

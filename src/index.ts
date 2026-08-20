@@ -18,6 +18,8 @@ export interface Env {
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
   PII_ENCRYPTION_KEY?: string;
+  ADMIN_API_KEY?: string;
+  ENVIRONMENT?: string;
 }
 
 function requireSecret(env: Env): string | null {
@@ -48,6 +50,80 @@ export default {
     }
 
     try {
+      // --- Authentication Middleware ---
+      const isProduction = env.ENVIRONMENT === "production";
+      if (isProduction && !env.ADMIN_API_KEY) {
+         return new Response(JSON.stringify({ error: "ADMIN_API_KEY not configured in production" }), {
+           status: 500, headers: { "Content-Type": "application/json", ...corsHeaders }
+         });
+      }
+
+      if (env.ADMIN_API_KEY) {
+        let isAuthenticated = false;
+        
+        // Check 1: Authorization Header (Bearer or Basic)
+        const authHeader = request.headers.get("Authorization");
+        if (authHeader) {
+          if (authHeader.startsWith("Bearer ") && authHeader.substring(7) === env.ADMIN_API_KEY) {
+            isAuthenticated = true;
+          } else if (authHeader.startsWith("Basic ")) {
+            try {
+              const b64 = authHeader.substring(6);
+              const decoded = atob(b64);
+              const [_, pass] = decoded.split(":");
+              if (pass === env.ADMIN_API_KEY) isAuthenticated = true;
+            } catch (e) {}
+          }
+        }
+        
+        // Check 2: X-API-Key Header
+        if (!isAuthenticated && request.headers.get("X-API-Key") === env.ADMIN_API_KEY) {
+          isAuthenticated = true;
+        }
+
+        // Check 3: Query Parameter & Cookie
+        const tokenQuery = url.searchParams.get("token");
+        const cookieHeader = request.headers.get("Cookie") || "";
+        const cookieMatch = cookieHeader.match(/opran_admin_token=([^;]+)/);
+        const cookieToken = cookieMatch ? cookieMatch[1] : null;
+
+        if (!isAuthenticated) {
+          if (tokenQuery === env.ADMIN_API_KEY || cookieToken === env.ADMIN_API_KEY) {
+             isAuthenticated = true;
+          }
+        }
+
+        if (!isAuthenticated) {
+          // If browser request (dashboard), prompt native Basic Auth
+          if (request.method === "GET" && path === "/") {
+            return new Response("Unauthorized", {
+              status: 401,
+              headers: { 
+                "WWW-Authenticate": 'Basic realm="Opran Booking Admin"',
+                "Content-Type": "text/plain" 
+              }
+            });
+          }
+          return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
+        
+        // If authenticated via token query on dashboard, set cookie and redirect to remove token from URL
+        if (path === "/" && tokenQuery === env.ADMIN_API_KEY) {
+           return new Response("Redirecting...", {
+             status: 302,
+             headers: {
+               "Location": "/",
+               "Set-Cookie": `opran_admin_token=${env.ADMIN_API_KEY}; HttpOnly; Path=/; Max-Age=86400; SameSite=Strict`,
+               ...corsHeaders
+             }
+           });
+        }
+      }
+      // --- End Authentication Middleware ---
+
       // API: System Status & Metrics
       if (path === "/api/status" && request.method === "GET") {
         const cairo = getCairoTimeInfo();
@@ -494,33 +570,55 @@ export default {
         return;
       }
 
+      const [
+        firstName,
+        lastName,
+        familyNameAtBirth,
+        street,
+        postalCode,
+        city,
+        passportNumber,
+        email,
+        phone
+      ] = await Promise.all([
+        decryptPII(job.first_name_enc, secret),
+        decryptPII(job.last_name_enc, secret),
+        decryptPII(job.family_name_at_birth_enc, secret),
+        decryptPII(job.address_street_enc, secret),
+        decryptPII(job.address_postal_code_enc, secret),
+        decryptPII(job.address_city_enc, secret),
+        decryptPII(job.passport_number_enc, secret),
+        decryptPII(job.email_enc, secret),
+        decryptPII(job.phone_enc, secret)
+      ]);
+
       const decryptedClient: DecryptedClientData = {
         id: job.client_id,
-        firstName: await decryptPII(job.first_name_enc, secret),
-        lastName: await decryptPII(job.last_name_enc, secret),
-        familyNameAtBirth: await decryptPII(job.family_name_at_birth_enc, secret),
+        firstName,
+        lastName,
+        familyNameAtBirth,
         placeOfBirth: job.place_of_birth,
         countryOfBirth: job.country_of_birth,
         nationalityAtBirth: job.nationality_at_birth,
-        street: await decryptPII(job.address_street_enc, secret),
-        postalCode: await decryptPII(job.address_postal_code_enc, secret),
-        city: await decryptPII(job.address_city_enc, secret),
+        street,
+        postalCode,
+        city,
         passportIssueDate: job.passport_issue_date,
         passportIssuingCountry: job.passport_issuing_country,
         gender: job.gender,
         dob: job.dob,
         nationality: job.nationality,
-        passportNumber: await decryptPII(job.passport_number_enc, secret),
+        passportNumber,
         passportExpiry: job.passport_expiry,
-        email: await decryptPII(job.email_enc, secret),
-        phone: await decryptPII(job.phone_enc, secret),
+        email,
+        phone,
         category: job.category,
         calendarId: job.calendar_id
       };
 
       const isDryRun = env.DRY_RUN === "true";
 
-      const httpRes = await executeDirectHttpBooking(decryptedClient, slotMonday, isDryRun);
+      const httpRes = await executeDirectHttpBooking(decryptedClient, slotMonday, isDryRun, sessionCookie);
 
       if (httpRes.isDryRun) {
         console.log(`[DRY-RUN] Halted prior to any submission for Job ${job.id} in ${httpRes.durationMs}ms.`);

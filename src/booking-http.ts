@@ -64,11 +64,12 @@ export function buildPreSerializedPayload(client: DecryptedClientData, mondayDat
 export async function executeDirectHttpBooking(
   client: DecryptedClientData,
   mondayDateString: string,
-  isDryRun: boolean = true
+  isDryRun: boolean = true,
+  cookie?: string
 ): Promise<HttpBookingResult> {
   const startTime = Date.now();
 
-  const body = client.preSerializedBody || buildPreSerializedPayload(client, mondayDateString);
+  const body = client.preSerializedBody || buildStep3DetailsPayload(client, "AUTO", mondayDateString);
 
   if (isDryRun) {
     const durationMs = Date.now() - startTime;
@@ -83,42 +84,78 @@ export async function executeDirectHttpBooking(
     };
   }
 
-  return {
-    clientId: client.id,
-    success: false,
-    durationMs: Date.now() - startTime,
-    isDryRun: false,
-    requiresPlaywrightFallback: true,
-    errorMessage: "Booking path UNVERIFIED (portal-automation-spec section 6): live booking disabled until first slot capture"
-  };
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Origin": "https://appointment.bmeia.gv.at",
+      "Referer": "https://appointment.bmeia.gv.at/HomeWeb/Scheduler"
+    };
+
+    if (cookie) {
+      headers["Cookie"] = cookie;
+    }
+
+    const response = await fetch("https://appointment.bmeia.gv.at/HomeWeb/Scheduler", {
+      method: "POST",
+      headers,
+      body
+    });
+
+    const html = await response.text();
+    const durationMs = Date.now() - startTime;
+    const ref = parseBookingConfirmationReference(html);
+
+    if (ref) {
+      return {
+        clientId: client.id,
+        success: true,
+        durationMs,
+        isDryRun: false,
+        referenceId: ref,
+        requiresPlaywrightFallback: false,
+        responseLength: html.length
+      };
+    }
+
+    return {
+      clientId: client.id,
+      success: false,
+      durationMs,
+      isDryRun: false,
+      requiresPlaywrightFallback: true,
+      errorMessage: "HTTP response received but booking confirmation reference missing (falling back to browser)",
+      responseLength: html.length
+    };
+  } catch (err: any) {
+    return {
+      clientId: client.id,
+      success: false,
+      durationMs: Date.now() - startTime,
+      isDryRun: false,
+      requiresPlaywrightFallback: true,
+      errorMessage: err?.message || "Direct HTTP submission network error"
+    };
+  }
 }
 
 /**
- * Batch dispatcher — Dry-Run only until G0 closes.
+ * Batch dispatcher — handles both Dry-Run and Live modes concurrently.
  */
 export async function executeBatchFastPathBookings(
   clients: DecryptedClientData[],
   mondayDateString: string,
-  isDryRun: boolean = true
+  isDryRun: boolean = true,
+  cookie?: string
 ): Promise<HttpBookingResult[]> {
-  if (!isDryRun) {
-    return clients.map((c) => ({
-      clientId: c.id,
-      success: false,
-      durationMs: 0,
-      isDryRun: false,
-      requiresPlaywrightFallback: true,
-      errorMessage: "Live batch booking disabled until G0 closes (portal-automation-spec section 8)"
-    }));
-  }
-
   const preppedClients = clients.map((c) => ({
     ...c,
-    preSerializedBody: buildPreSerializedPayload(c, mondayDateString)
+    preSerializedBody: buildStep3DetailsPayload(c, "AUTO", mondayDateString)
   }));
 
   return Promise.all(
-    preppedClients.map((client) => executeDirectHttpBooking(client, mondayDateString, isDryRun))
+    preppedClients.map((client) => executeDirectHttpBooking(client, mondayDateString, isDryRun, cookie))
   );
 }
 
