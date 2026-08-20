@@ -125,12 +125,14 @@
 
 ### Story 4.1: Single Operator SPA Admin Panel
 - **As an** Operator,  
-- **I want a** dark glassmorphism dashboard displaying active jobs, status badges, metrics, and modal forms,  
+- **I want a** premium navy dashboard displaying active jobs, status badges, metrics, and modal forms,  
 - **So that** I can monitor and control all automation jobs effortlessly.
+
+> **2026-08-20 amendment:** the shipped dashboard is the premium redesign (`docs/implementation-artifacts/spec-spa-crud-premium-ui.md`) — off-black navy palette, Bootstrap 5.3 RTL (CSS-only, SRI-pinned), Alexandria typeface, skeleton/empty/inline-error states — superseding the earlier "dark glassmorphism" direction.
 
 #### Acceptance Criteria:
 1. Top bar displays Cairo Time clock, Dry-Run status banner, and resource budget gauge.
-2. Client table lists all candidates with status pills and action toggles (Activate/Pause/Cancel — cancel added per D8, 2026-08-20).
+2. Client table lists all candidates with status pills and action toggles (Activate/Pause/Cancel — cancel added per D8, 2026-08-20; **Edit/Delete added per the CRUD story, same day**).
 3. Responsive SPA loads in under 1 second from Cloudflare Workers Static Assets.
 
 ---

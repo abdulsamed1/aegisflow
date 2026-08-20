@@ -1,39 +1,45 @@
 # UX & UI Specification — Single Operator Admin Panel (opran-booking)
 
-> **Status:** FINAL  
+> **Status:** FINAL (amended 2026-08-20 — shipped dashboard is the premium redesign; source of truth: `docs/implementation-artifacts/spec-spa-crud-premium-ui.md`)  
 > **Target Device:** Desktop / Tablet Responsive (1280px+ optimized)  
-> **Visual Direction:** Sleek Dark Glassmorphism, Premium Operational Dashboard  
+> **Visual Direction:** Premium Navy Operational Dashboard — off-black navy, single desaturated blue accent, Bootstrap 5.3 RTL (CSS-only, SRI-pinned), Alexandria typeface  
 
 ---
 
 ## 1. Design System & Aesthetics
 
-### 1.1 Color Palette (HSL Tailored)
+### 1.1 Color Palette (2026-08-20 — shipped tokens, src/index.ts `:root`)
 
 ```css
 :root {
-  /* Backgrounds */
-  --bg-dark: hsl(222, 47%, 7%);
-  --bg-card: hsla(222, 40%, 12%, 0.7);
-  --bg-card-hover: hsla(222, 40%, 16%, 0.8);
-  --border-glass: hsla(217, 33%, 25%, 0.4);
+  /* Backgrounds — off-black navy family */
+  --bg-surface: #0b0f1a;
+  --bg-card: #111726;
+  --bg-card-hover: #161e30;
+  --border: rgba(148, 163, 184, 0.14);
 
-  /* Primary & Accents */
-  --primary-accent: hsl(210, 100%, 56%);    /* Radiant Blue */
-  --success-glow: hsl(150, 80%, 42%);      /* Emerald Green */
-  --warning-amber: hsl(38, 92%, 50%);      /* Amber Gold */
-  --error-crimson: hsl(352, 83%, 58%);     /* Crimson Red */
-  
+  /* Primary & Accents — one desaturated brand accent, semantic colors for pills only */
+  --primary: #4a7dff;
+  --primary-hover: #3b6ae6;
+  --success: #2dd4a7;
+  --warning: #eab308;
+  --danger: #f87171;
+
   /* Text */
-  --text-main: hsl(210, 40%, 98%);
-  --text-muted: hsl(215, 20%, 65%);
-  --text-dim: hsl(215, 16%, 45%);
+  --text: #e8edf6;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
 }
 ```
 
+- Ambient background: two radial gradients (primary tint top-right, success tint bottom-left) over `--bg-surface`, plus a fixed SVG-noise grain overlay (`feTurbulence` data-URI, `pointer-events: none`, opacity 0.035).
+- Bootstrap dark-theme remap: `--bs-*` variables re-point to our tokens so `.table/.btn/.alert/.form-control` adopt the palette.
+- Tinted shadows: cards use `0 12px 32px -16px rgba(3,7,18,.9)` (background hue, not pure black); the featured card adds a primary accent glow.
+
 ### 1.2 Typography & Visual Hierarchy
-- **Primary Font**: `Cairo` (Arabic-first with Latin support — matches the Arabic dashboard and the project's Cairo domain), fallback `system-ui`.
-- **Monospace Font**: `JetBrains Mono`, `monospace` (used for IDs, Timestamps, Error Codes, JSON payload previews).
+- **Primary Font**: `Alexandria` (variable Arabic+Latin, weights 400–800, one Google Fonts request, `display=swap`) — headings 700–800, labels 600, body 400–500. Fallback `system-ui`.
+- **Monospace Font**: `JetBrains Mono` 500 (used for IDs, Timestamps, Error Codes, JSON payload previews).
+- Motion: transitions on `transform`/`opacity` only (200–300ms), staggered `rise` keyframe reveal for metric cards on first load, `prefers-reduced-motion: reduce` kills all animation.
 
 ---
 
@@ -84,8 +90,8 @@ Displays all candidate clients with instant filter pills (`All`, `Active`, `Draf
 6. **Actions**: Context menu / Action buttons:
    - `[Activate / Pause]` toggle button.
    - `[Cancel]` button — ends the request permanently (operator or client decision, D8).
-   - `[Edit]` icon button.
-   - `[Logs]` icon button.
+   - `[Edit]` icon button — opens the shared add/edit modal in edit mode (prefill from the loaded clients array, no extra GET).
+   - `[Delete]` icon button — native `confirm()` then `DELETE /api/clients/:id`; hidden for `BOOKED` rows (default-`disabled` + server 403 as backstop).
 
 #### Status Badge Color Matrix:
 
@@ -136,6 +142,8 @@ A structured form modal with instant client-side validation feedback.
 ```
 
 > **2026-08-20 decision:** the per-client "Start Date / End Date / Time Range / Allowed Days" controls were removed from this modal. All ACTIVE requests share one global Cairo window (07:00–18:00 daily) and live until booked or cancelled. The additional birth/address/passport-issue fields mirror the observed BMEIA registration form (screenshots) so no booking-path gap remains once G0 closes.
+>
+> **2026-08-20 (CRUD):** Add and Edit share one form + one modal, switched by a mode flag; inline Bootstrap alert error box instead of `window.alert()`; form errors surface server 400s. In edit mode the passport input is left empty with placeholder «اتركه فارغًا للإبقاء على الرقم الحالي» and its native `required` attribute is disabled so the keep-passport submission goes through.
 
 ---
 

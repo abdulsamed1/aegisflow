@@ -137,6 +137,7 @@ stateDiagram-v2
 ### FR-8: Audit Logging & Metrics
 - All events shall be logged to D1 table `audit_logs` with the canonical event set from the brief section 17:
   `NO_APPOINTMENT, APPOINTMENT_FOUND, RULE_MISMATCH, UNKNOWN_RESPONSE, BOOKING_STARTED, DRY_RUN_STOPPED, SUBMITTED, BOOKED, BOOKING_FAILED, TEMPORARY_ERROR, PORTAL_ERROR, BUDGET_WARNING, NOTIFY_SENT`.
+- Implementation-added event (2026-08-20, client deletion): `CLIENT_DELETED` — written by `DELETE /api/clients/:id` after detaching the client's scheduler audit rows (`client_id`/`job_id` → NULL; see architecture.md §3 note).
 - Logs shall include `job_id`, `client_id`, `event_type`, `duration_ms`, `error_code`, and ISO timestamp.
 
 ### FR-9: Operator Telegram Alerts
@@ -146,7 +147,7 @@ stateDiagram-v2
 
 ### FR-10: Operator Admin Dashboard
 - Single-page web application hosted on Cloudflare Workers Static Assets.
-- Functions: Client listing, status filtering, client creation/editing, job activation/pausing/cancellation, audit log viewer, live metrics (checks/hr, slot hit rate).
+- Functions: Client listing, status filtering, client creation/editing/**deletion**, job activation/pausing/cancellation, audit log viewer, live metrics (checks/hr, slot hit rate).
 
 ---
 

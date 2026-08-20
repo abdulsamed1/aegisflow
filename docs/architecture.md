@@ -143,6 +143,8 @@ CREATE INDEX IF NOT EXISTS idx_jobs_scheduler ON jobs(enabled, status, backoff_u
 CREATE INDEX IF NOT EXISTS idx_audit_job ON audit_logs(job_id, created_at);
 ```
 
+> **2026-08-20 (client deletion):** `audit_logs.client_id`/`job_id` have no `ON DELETE` action, and D1 enforces FKs — scheduler scan rows referencing a client would block `DELETE /api/clients/:id`. The DELETE route therefore nulls both columns for the client first (`UPDATE audit_logs SET client_id = NULL, job_id = NULL WHERE client_id = ?`), then writes `CLIENT_DELETED`, then deletes. The optional `ON DELETE SET NULL` migration is recorded in `docs/implementation-artifacts/deferred-work.md`.
+
 ---
 
 ## 4. Execution Sequence Diagrams
@@ -194,13 +196,6 @@ sequenceDiagram
 ```
 
 > The dual-engine decision (direct HTTP POST vs Playwright) will be made from first-slot capture evidence and recorded in `portal-automation-spec.md` section 6. Until then the implementation returns `Booking path UNVERIFIED` and performs no network submission.
-            PW->>BMEIA: Click Submit Button
-            BMEIA-->>PW: Confirmation Page & Ref ID
-            PW->>DO: Set Permanent State 'BOOKED'
-            Sched->>TG: Send Telegram Alert (BOOKED Success!)
-        end
-    end
-```
 
 ---
 
