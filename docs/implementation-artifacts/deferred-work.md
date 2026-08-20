@@ -3,8 +3,8 @@
 Findings surfaced by the 2026-08-20 global-rules-refactor review that are real but not caused by that story.
 
 - source_spec: none
-  summary: Protect /api/clients GET from unauthenticated CORS-open exfiltration and per-field PBKDF2 CPU amplification
-  evidence: The endpoint decrypts full PII (now 9 fields incl. address) with `Access-Control-Allow-Origin: *` and no auth; each decryptPII re-runs 100k PBKDF2 iterations, so any site open in the operator's browser can fetch decrypted passports/addresses and hammer CPU. Blocked on the operator's Access-app click (Todo.md item 2, "(أ)"); the established fix is the Access app + `ALLOWED_ORIGINS` gate per AGENTS.md env patterns, optionally deriving the CryptoKey once per request (src/crypto.ts).
+  summary: Protect /api/clients GET from unauthenticated exfiltration and per-field PBKDF2 CPU amplification
+  evidence: UPDATE 2026-08-20: Cloudflare Access is now enabled on the whole hostname (dashboard + API redirect to the Access login; cron triggers unaffected), so the unauthenticated-exfiltration and anonymous-CPU-amplification halves of this item are mitigated at the edge. What remains inside the authenticated boundary: `Access-Control-Allow-Origin: *` still allows any site the operator is logged into to call the API cross-origin, and each decryptPII re-runs 100k PBKDF2 iterations (now 9 fields incl. address). Optional hardening: derive the CryptoKey once per request (src/crypto.ts) and/or pin CORS to the dashboard origin. Not blocking.
 
 - source_spec: none
   summary: Throttle per-job-per-week re-scans to cut portal load
