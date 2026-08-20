@@ -1,7 +1,7 @@
 ---
 title: 'SPA Client CRUD + Premium UI Redesign'
 created: '2026-08-20'
-status: 'ready-for-review'
+status: 'done'
 baseline_commit: 'e37f695'
 decisions_locked: ['D5-amended (window 07:00–18:00, unchanged)', 'D8 (no expiry, unchanged)', 'AD-11 (global rules, unchanged)']
 skill_applied: 'frontend/ui-ux/redesign-existing-projects'

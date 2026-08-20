@@ -1,8 +1,8 @@
 # QA Test Automation Summary — opran-booking
 
-> **Generated:** 2026-08-20 (updated after the global-window refactor — D5/D8/AD-11 implemented)  
+> **Generated:** 2026-08-20 (updated after the SPA CRUD + premium UI work — PUT/DELETE/prefill/dashboard)  
 > **Framework:** Node.js Native Test Runner + `tsx` (`node --import tsx --test`)  
-> **Status:** 33 tests PASSING (28 unit + 5 Miniflare integration), `tsc --noEmit` clean
+> **Status:** 46 tests PASSING (38 unit + 8 Miniflare integration), `tsc --noEmit` clean
 
 ---
 
@@ -39,8 +39,12 @@
 - [x] `POST /api/clients` creates encrypted client + job with the complete profile (mock D1).
 - [x] `POST /api/clients` returns 400 naming the missing field (new and original required fields), on null bodies and non-string values — nothing written.
 - [x] `POST /api/jobs/:id/cancel` marks the job `CANCELLED` + disabled (terminal-state contract).
+- [x] `PUT /api/clients/:id` — full-field update with re-encryption (200/400/404); empty passport keeps existing ciphertext; calendar_id follows the category.
+- [x] `DELETE /api/clients/:id` — hard delete (200/404), BOOKED guard (403), `CLIENT_DELETED` audit row written.
+- [x] `GET /api/clients` returns email/phone/passportExpiry for edit prefill; passport stays masked-only.
 - [x] Admin HTML carries the 9 new profile fields + global-rules block + cancel action, and no per-client schedule controls.
 - [x] `GET /` serves the Arabic admin dashboard (mock env).
+- [x] Dashboard: Bootstrap RTL CSS (SRI-pinned), Alexandria font, dark theme, skeleton + empty states, edit/delete affordances with native confirm(), no alert()-based form errors.
 
 ### Miniflare Integration (`test/integration.miniflare.test.ts` — added 2026-08-19)
 - [x] Client creation encrypts PII at rest in real D1 and returns masked data on read.
@@ -50,6 +54,9 @@
 - [x] Scheduler pick query returns oldest-outstanding jobs, excludes backoff jobs, and never selects the legacy per-client date columns (AD-7 fairness + D8/AD-11).
 - [x] Durable Object lock lifecycle (acquire, reject, release, seal).
 - [x] Stale lock (crashed execution) expires and allows takeover after TTL.
+- [x] `PUT /api/clients/:id` round-trip in real D1: re-encryption, category→calendar recompute, empty-passport keeps ciphertext, job untouched.
+- [x] `DELETE /api/clients/:id` in real D1: client + job cascade, `CLIENT_DELETED` audit row with the deleted id.
+- [x] `DELETE /api/clients/:id` returns 403 for a BOOKED job (rows remain).
 
 ---
 
@@ -60,15 +67,15 @@
 | Live portal booking submission | Booking path UNVERIFIED — fail-closed by design until first-slot capture (G0 spec section 8) |
 | `dispatchScheduled` Cron-path integration | Miniflare 3.20250718.3 has no `dispatchScheduled`; window gating is covered by pure-function unit tests + the live production tick |
 | Playwright form-fill against live slots | Requires an actual appearing slot; captured per `portal-automation-spec.md` section 8 plan |
-| Auth (Cloudflare Access) | Operator action pending — dashboard currently unauthenticated — P0 action item (Todo.md (أ)) |
+| Auth (Cloudflare Access) | ✅ Enabled 2026-08-20 — whole hostname (dashboard + API) behind the Access login; cron unaffected. Remaining hardening is optional (CORS pinning, PBKDF2 key reuse) — see `docs/implementation-artifacts/deferred-work.md` |
 
 ---
 
 ## 3. Execution Benchmark (latest run)
 
 ```text
-ℹ tests 33
-ℹ pass 33
+ℹ tests 46
+ℹ pass 46
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
