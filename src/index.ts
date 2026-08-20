@@ -326,6 +326,10 @@ export default {
           });
         }
 
+        // ponytail: detach scheduler audit rows first — they FK-reference the client and would block the delete
+        await env.DB.prepare("UPDATE audit_logs SET client_id = NULL, job_id = NULL WHERE client_id = ?")
+          .bind(clientId).run();
+
         // ponytail: audit via details, not client_id FK — the client row is deleted next and would violate the FK
         await env.DB.prepare("INSERT INTO audit_logs (event_type, details) VALUES ('CLIENT_DELETED', ?)")
           .bind(clientId).run();
@@ -969,6 +973,7 @@ function getAdminHTML(isDryRun: boolean): string {
       document.getElementById('client-modal-title').textContent = 'إضافة مرشح جديد للنظام';
       document.getElementById('client-submit-btn').textContent = 'حفظ وإنشاء المهمة';
       document.getElementById('passportNumber').placeholder = 'A12345678';
+      document.getElementById('passportNumber').required = true;
       document.getElementById('add-client-form').reset();
       document.getElementById('client-form-error').classList.add('d-none');
       document.getElementById('client-modal').style.display = 'flex';
@@ -989,6 +994,7 @@ function getAdminHTML(isDryRun: boolean): string {
       v('passportIssueDate', c.passportIssueDate); v('passportIssuingCountry', c.passportIssuingCountry);
       v('passportNumber', '');
       document.getElementById('passportNumber').placeholder = 'اتركه فارغًا للإبقاء على الرقم الحالي';
+      document.getElementById('passportNumber').required = false;
       v('passportExpiry', c.passportExpiry); v('dob', c.dob); v('gender', c.gender);
       v('email', c.email); v('phone', c.phone);
       document.getElementById('client-form-error').classList.add('d-none');
