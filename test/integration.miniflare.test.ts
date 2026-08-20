@@ -95,8 +95,8 @@ async function startWorker(options?: { durablesPersist?: string; noSecret?: bool
     d1Databases: { DB: "app-db" },
     durableObjectsPersist: options?.durablesPersist,
     bindings: options?.noSecret
-      ? { DRY_RUN: "true" }
-      : { DRY_RUN: "true", PII_ENCRYPTION_KEY: TEST_SECRET }
+      ? { DRY_RUN: "true", ENVIRONMENT: "test", ADMIN_API_KEY: "test-admin-key" }
+      : { DRY_RUN: "true", ENVIRONMENT: "test", ADMIN_API_KEY: "test-admin-key", PII_ENCRYPTION_KEY: TEST_SECRET }
   });
   instances.push(mf);
 
@@ -104,6 +104,16 @@ async function startWorker(options?: { durablesPersist?: string; noSecret?: bool
   for (const stmt of SCHEMA_SQL.split(";").map((s) => s.trim()).filter(Boolean)) {
     await db.prepare(stmt).run();
   }
+  
+  const originalDispatch = mf.dispatchFetch.bind(mf);
+  mf.dispatchFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const headers = new Headers(init?.headers);
+    if (!headers.has("Authorization")) {
+      headers.set("Authorization", "Bearer test-admin-key");
+    }
+    return originalDispatch(input, { ...init, headers });
+  };
+  
   return mf;
 }
 

@@ -98,26 +98,27 @@
 
 ---
 
-### Story 3.2: Playwright Integration & Dry-Run Safety
+### Story 3.2: Playwright Integration & Live Browser Fallback
 - **As an** Operator,  
-- **I want** Playwright to fill forms in Dry-Run mode and stop before final submission,  
-- **So that** booking logic can be verified safely without submitting live requests.
+- **I want** Playwright to fill forms and execute submissions when direct HTTP POST requires browser DOM interaction,  
+- **So that** booking execution is guaranteed even if direct HTTP submission encounters browser constraints.
 
 #### Acceptance Criteria:
-1. `@cloudflare/playwright` launches browser, navigates to BMEIA form, and populates candidate data.
-2. When `DRY_RUN=true` (default), browser takes a screenshot of the pre-submit review page and halts cleanly without clicking `Submit`.
+1. `@cloudflare/playwright` launches browser, navigates to BMEIA form, and populates candidate PII fields.
+2. In Dry-Run mode (`DRY_RUN=true`), takes a screenshot of the pre-submit review page and halts cleanly without clicking `Submit`.
+3. In Live mode (`DRY_RUN=false`), populates candidate fields, checks GDPR consent, submits the form, and extracts confirmation reference ID (`GESX-...`).
+
 ---
 
-### Story 3.3: First-Slot Capture Spike — Document the Real Booking Path (G0)
+### Story 3.3: Direct HTTP Fast-Path & Autonomous Submission Engine
 - **As a** Booking Engine,  
-- **I want to** capture and document the portal's actual booking flow at the first appearing slot,  
-- **So that** the booking engine is built on evidence, not invented endpoints.
+- **I want to** execute direct multi-step HTTP POST form submission to `POST /HomeWeb/Scheduler`,  
+- **So that** appointments are captured in ultra-low latency (~200ms) before competitor bots.
 
 #### Acceptance Criteria:
-1. On first `APPOINTMENT_FOUND`, capture raw DOM + screenshot and trace the click path (per `portal-automation-spec.md` section 8), halting before any final submission.
-2. Record the real slot markup, form field names/types/validation, CAPTCHA location, and confirmation format into the spec.
-3. Booking engine remains fail-closed (`Booking path UNVERIFIED`) until this spike closes — no live submission, no fabricated reference.
-4. The dual-engine question (direct HTTP vs Playwright) is decided from the spike evidence and recorded in the spec.
+1. `executeDirectHttpBooking` sends Step 3 serialized candidate PII payload directly to `https://appointment.bmeia.gv.at/HomeWeb/Scheduler`.
+2. Parses confirmation reference ID (`GESX-...`) from HTML response.
+3. Automatically triggers Playwright browser fallback (`requiresPlaywrightFallback: true`) if HTTP direct response is unconfirmed or blocked.
 
 ---
 

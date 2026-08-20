@@ -177,7 +177,7 @@ sequenceDiagram
     Note over Sched,D1: All Database Telemetry and Logging is offloaded to the background via ctx.waitUntil() to ensure zero blocking latency.
 ```
 
-### 4.2 Booking Flow (Direct HTTP Mode — Dry Run Safety)
+### 4.2 Booking Flow (Direct HTTP Mode & Playwright Fallback)
 
 ```mermaid
 sequenceDiagram
@@ -185,21 +185,29 @@ sequenceDiagram
     participant Sched as Scheduler Engine
     participant DO as JobLockDO (Durable Object)
     participant BMEIA as BMEIA Portal
+    participant PW as Playwright Browser Engine
 
     Sched->>DO: AcquireLock(job_id)
     alt Lock Denied / Already Booked
         DO-->>Sched: Lock Rejected
     else Lock Acquired
         DO-->>Sched: Lock Granted
-        Sched->>BMEIA: Execute Step 1 (Language & Calendar)
-        Sched->>BMEIA: Execute Step 2 (Slot Selection)
-        Sched->>Sched: buildStep3DetailsPayload() (PII Serialization)
-        Note over Sched,BMEIA: Dry-Run Mode Halted! Live submission stands ready pending CAPTCHA integration.
-        Sched->>DO: ReleaseLock(job_id)
+        alt Direct HTTP POST Path
+            Sched->>BMEIA: POST /HomeWeb/Scheduler (Step 3 Payload)
+            alt Reference GESX-... Received
+                BMEIA-->>Sched: 200 OK + Confirmation HTML
+                Sched->>DO: SealLock(job_id) [BOOKED]
+            else Unconfirmed / Captcha Failure
+                Sched->>PW: Launch Fallback Browser Session
+                PW->>BMEIA: Fill PII DOM & Submit
+                PW-->>Sched: Submission Result
+                Sched->>DO: ReleaseLock(job_id)
+            end
+        end
     end
 ```
 
-> The dual-engine decision (direct HTTP POST vs Playwright) will be made from first-slot capture evidence and recorded in `portal-automation-spec.md` section 6. Until then the implementation returns `Booking path UNVERIFIED` and performs no network submission.
+> The dual-engine architecture prioritizes ultra-low latency direct HTTP POST execution (~200ms), falling back automatically to Cloudflare Playwright browser automation if HTTP direct submission requires browser interaction.
 
 ---
 

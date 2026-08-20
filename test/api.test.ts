@@ -2,6 +2,15 @@ import test from "node:test";
 import assert from "node:assert";
 import worker from "../src/index";
 
+const originalFetch = worker.fetch;
+worker.fetch = async (req: Request, env: any, ctx: any) => {
+  const newReq = new Request(req);
+  if (!newReq.headers.has("Authorization") && newReq.headers.get("X-Skip-Auth") !== "true") {
+    newReq.headers.set("Authorization", "Bearer test-admin-key");
+  }
+  return originalFetch(newReq, env, ctx);
+};
+
 // Mock Environment Builder for Worker fetch testing
 function createMockEnv() {
   const clientsStore: any[] = [];
@@ -128,6 +137,8 @@ function createMockEnv() {
     SESSION_KV: {} as any,
     MYBROWSER: {} as any,
     DRY_RUN: "true",
+    ENVIRONMENT: "test",
+    ADMIN_API_KEY: "test-admin-key",
     PII_ENCRYPTION_KEY: "test-encryption-key-32-chars-ok",
     __stores: { clients: clientsStore, jobs: jobsStore, logs: logsStore }
   };
@@ -1048,5 +1059,53 @@ test("Booking Engine Utility: parseBookingConfirmationReference extracts referen
   assert.strictEqual(parseBookingConfirmationReference(sampleHtml2), "GESX-998877");
 
   assert.strictEqual(parseBookingConfirmationReference("<html>no reference</html>"), null);
+});
+
+test("API Security: Unauthenticated request to protected endpoint returns 401 Unauthorized", async () => {
+  const env = createMockEnv();
+  const req = new Request("https://opran-booking.local/api/status", {
+    headers: { "X-Skip-Auth": "true" } // Prevents the monkey-patch from injecting the token
+  });
+  const res = await worker.fetch(req, env, {} as any);
+  assert.strictEqual(res.status, 401);
+});
+
+test("API Security: Missing ADMIN_API_KEY in production returns 500", async () => {
+  const env = createMockEnv();
+  env.ENVIRONMENT = "production";
+  delete env.ADMIN_API_KEY;
+  const req = new Request("https://opran-booking.local/api/status", {
+    headers: { "X-Skip-Auth": "true" }
+  });
+  const res = await worker.fetch(req, env, {} as any);
+  assert.strictEqual(res.status, 500);
+});
+
+test("API Security: Authenticated request via Bearer token", async () => {
+  const env = createMockEnv();
+  const req = new Request("https://opran-booking.local/api/status", {
+    headers: { "Authorization": "Bearer test-admin-key", "X-Skip-Auth": "true" }
+  });
+  const res = await worker.fetch(req, env, {} as any);
+  assert.strictEqual(res.status, 200);
+});
+
+test("API Security: Authenticated request via X-API-Key header", async () => {
+  const env = createMockEnv();
+  const req = new Request("https://opran-booking.local/api/status", {
+    headers: { "X-API-Key": "test-admin-key", "X-Skip-Auth": "true" }
+  });
+  const res = await worker.fetch(req, env, {} as any);
+  assert.strictEqual(res.status, 200);
+});
+
+test("API Security: Authenticated request via Basic Auth", async () => {
+  const env = createMockEnv();
+  const basicAuth = btoa("admin:test-admin-key");
+  const req = new Request("https://opran-booking.local/api/status", {
+    headers: { "Authorization": `Basic ${basicAuth}`, "X-Skip-Auth": "true" }
+  });
+  const res = await worker.fetch(req, env, {} as any);
+  assert.strictEqual(res.status, 200);
 });
 

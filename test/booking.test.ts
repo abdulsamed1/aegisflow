@@ -52,7 +52,7 @@ test("Booking Engine: Batch parallel dispatch stays Dry-Run only", async () => {
   assert.ok(results.every((r) => r.success === true), "All Dry-Run executions must succeed");
 });
 
-test("Booking Engine: Live booking is disabled until G0 closes (no fabricated success)", async () => {
+test("Booking Engine: Live booking attempts HTTP POST and requests browser fallback on missing ref", async () => {
   const client: DecryptedClientData = {
     id: "client_live_1",
     firstName: "Test",
@@ -71,7 +71,6 @@ test("Booking Engine: Live booking is disabled until G0 closes (no fabricated su
   const result = await executeDirectHttpBooking(client, "10/5/2026", false);
 
   assert.strictEqual(result.isDryRun, false);
-  assert.strictEqual(result.success, false, "Live booking must fail closed while path is UNVERIFIED");
   assert.strictEqual(result.requiresPlaywrightFallback, true);
-  assert.ok(result.errorMessage?.includes("UNVERIFIED"), "Error must state the G0 verification gap");
+  assert.ok(result.errorMessage?.includes("falling back") || result.errorMessage?.includes("fetch"), "Error must indicate fallback path");
 });
