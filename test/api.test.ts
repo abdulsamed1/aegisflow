@@ -299,8 +299,9 @@ test("API Endpoint: GET / serves interactive Admin Dashboard HTML", async () => 
 
   const html = await res.text();
   assert.ok(html.includes("أوبيران لأتمتة الحجوزات"));
-  assert.ok(html.includes("محرك الفحص السريع"));
-  assert.ok(html.includes("DRY-RUN"));
+  assert.ok(!html.includes("محرك الفحص السريع"), "Fastpath badge must be removed");
+  assert.ok(!html.includes("badge-dryrun"), "DRY-RUN badge must be removed");
+  assert.ok(!html.includes("sysline"), "Footer system line must be removed");
   assert.ok(!html.includes("<10ms"), "Dashboard must not advertise unverified latency claims");
 });
 
@@ -332,8 +333,12 @@ test("Dashboard: premium assets are present", async () => {
 
   assert.ok(!html.includes("bootstrap.rtl.min.css"), "Third-party framework CSS must be dropped for custom design system");
   assert.ok(html.includes("Alexandria"), "Premium Arabic font must be loaded");
-  assert.ok(html.includes("data-theme=\"night\""), "Night theme must be set");
-  assert.ok(html.includes("--primary: #c2ef4e"), "Sentry-lime primary token must exist");
+  assert.ok(!html.includes("JetBrains+Mono"), "JetBrains Mono font request must be dropped for system mono stack");
+  assert.ok(html.includes("data-theme=\"paper\""), "Paper (light) theme must be set");
+  assert.ok(html.includes("--primary: #b33a2b"), "Burnt-red primary token must exist");
+  assert.ok(!html.includes("--primary: #faff69"), "Legacy ClickHouse yellow token must be gone");
+  assert.ok(!html.includes("--primary: #c2ef4e"), "Legacy Sentry-lime token must be gone");
+  assert.ok(!html.includes("data-theme=\"night\""), "Legacy night theme must be gone");
   assert.ok(html.includes("skeleton"), "Skeleton loading state must exist");
   assert.ok(html.includes("empty-state"), "Composed empty state must exist");
   assert.ok(html.includes("dir=\"rtl\""), "Root must stay RTL for Arabic");
