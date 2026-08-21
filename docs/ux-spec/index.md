@@ -1,0 +1,21 @@
+# UX & UI Specification — Single Operator Admin Panel (opran-booking)
+
+## Table of Contents
+
+- [UX & UI Specification — Single Operator Admin Panel (opran-booking)](#table-of-contents)
+  - [0. Revision Log](./0-revision-log.md)
+  - [1. Design System](./1-design-system.md)
+    - [1.1 Color Palette (shipped tokens —  , v6 Paper Dossier)](./1-design-system.md#11-color-palette-shipped-tokens-v6-paper-dossier)
+    - [1.2 Typography](./1-design-system.md#12-typography)
+    - [1.3 Layout & Spacing](./1-design-system.md#13-layout-spacing)
+    - [1.4 Elevation & Shape](./1-design-system.md#14-elevation-shape)
+    - [1.5 Motion](./1-design-system.md#15-motion)
+  - [2. Screen Specifications](./2-screen-specifications.md)
+    - [Screen 1: Header + Metric Ribbon](./2-screen-specifications.md#screen-1-header-metric-ribbon)
+    - [Screen 2: Client Table](./2-screen-specifications.md#screen-2-client-table)
+    - [Screen 3: Add / Edit Client Modal](./2-screen-specifications.md#screen-3-add-edit-client-modal)
+  - [3. Status Presentation](./3-status-presentation.md)
+  - [4. Micro-Interactions & Feedback (shipped set)](./4-micro-interactions-feedback-shipped-set.md)
+  - [5. Accessibility Floor](./5-accessibility-floor.md)
+  - [6. Do's and Don'ts](./6-dos-and-donts.md)
+  - [7. Out of Scope (v1 surfaces not shipped, decisions recorded)](./7-out-of-scope-v1-surfaces-not-shipped-decisions-recorded.md)

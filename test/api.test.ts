@@ -136,7 +136,6 @@ function createMockEnv() {
     JOB_LOCK: {} as any,
     SESSION_KV: {} as any,
     MYBROWSER: {} as any,
-    DRY_RUN: "true",
     ENVIRONMENT: "test",
     ADMIN_API_KEY: "test-admin-key",
     PII_ENCRYPTION_KEY: "test-encryption-key-32-chars-ok",
@@ -176,7 +175,7 @@ test("API Endpoint: GET /api/status returns operational system metrics", async (
   const body = await res.json() as any;
   assert.strictEqual(body.status, "operational");
   assert.strictEqual(body.fastPathEnabled, true);
-  assert.strictEqual(body.dryRun, true);
+  assert.strictEqual(body.dryRun, undefined);
   assert.ok(body.cairoTime !== undefined);
 });
 
@@ -311,7 +310,7 @@ test("API Endpoint: GET / serves interactive Admin Dashboard HTML", async () => 
   const html = await res.text();
   assert.ok(html.includes("أوبيران لأتمتة الحجوزات"));
   assert.ok(!html.includes("محرك الفحص السريع"), "Fastpath badge must be removed");
-  assert.ok(!html.includes("badge-dryrun"), "DRY-RUN badge must be removed");
+  assert.ok(!html.includes("badge-dryrun"), "DRY-RUN badge removed");
   assert.ok(!html.includes("sysline"), "Footer system line must be removed");
   assert.ok(!html.includes("<10ms"), "Dashboard must not advertise unverified latency claims");
 });

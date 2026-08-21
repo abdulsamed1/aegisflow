@@ -14,7 +14,6 @@ export interface Env {
   JOB_LOCK: DurableObjectNamespace;
   SESSION_KV: KVNamespace;
   MYBROWSER: any;
-  DRY_RUN: string;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
   PII_ENCRYPTION_KEY?: string;
@@ -141,7 +140,6 @@ export default {
           JSON.stringify({
             status: isTripped ? "CIRCUIT_BREAKER_TRIPPED" : "operational",
             fastPathEnabled: true,
-            dryRun: env.DRY_RUN === "true",
             circuitBreakerTripped: isTripped,
             cairoTime: cairo,
             activeJobs: activeJobsCount?.count || 0,
@@ -616,28 +614,9 @@ export default {
         calendarId: job.calendar_id
       };
 
-      const isDryRun = env.DRY_RUN === "true";
+      const httpRes = await executeDirectHttpBooking(decryptedClient, slotMonday, sessionCookie);
 
-      const httpRes = await executeDirectHttpBooking(decryptedClient, slotMonday, isDryRun, sessionCookie);
-
-      if (httpRes.isDryRun) {
-        console.log(`[DRY-RUN] Halted prior to any submission for Job ${job.id} in ${httpRes.durationMs}ms.`);
-
-        bgTasks.push(env.DB.prepare(
-          `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
-           VALUES (?, ?, 'DRY_RUN_STOPPED', ?, ?)`
-        ).bind(job.id, job.client_id, httpRes.durationMs, JSON.stringify({ week: slotMonday })).run());
-
-        await doStub.fetch("https://lock/release");
-
-        if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
-          bgTasks.push(sendTelegramNotification(
-            env.TELEGRAM_BOT_TOKEN,
-            env.TELEGRAM_CHAT_ID,
-            `🔍 *[DRY-RUN] Appointment Slot Detected!*\n\nJob ID: \`${job.id}\`\nClient: \`${decryptedClient.firstName} ${decryptedClient.lastName}\`\nCalendar: \`${job.category}\`\nWeek: \`${slotMonday}\`\n\n*Status:* Dry-Run Safety active — booking path still UNVERIFIED (G0).`
-          ));
-        }
-      } else if (httpRes.success) {
+      if (httpRes.success) {
         console.log(`Booking completed for Job ${job.id}. Ref: ${httpRes.referenceId}`);
         // Guard: a cancel during the in-flight booking must win (D8 terminal semantics)
         await env.DB.prepare(
@@ -659,7 +638,7 @@ export default {
       } else {
         console.warn(`[FALLBACK] Direct booking unavailable (${httpRes.errorMessage}). Launching Playwright...`);
 
-        const pwRes = await executePlaywrightFallback(env.MYBROWSER, decryptedClient, isDryRun);
+        const pwRes = await executePlaywrightFallback(env.MYBROWSER, decryptedClient);
 
         bgTasks.push(env.DB.prepare(
           `INSERT INTO daily_metrics (date, total_browser_seconds) VALUES (DATE('now'), ?)

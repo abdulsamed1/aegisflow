@@ -95,8 +95,8 @@ async function startWorker(options?: { durablesPersist?: string; noSecret?: bool
     d1Databases: { DB: "app-db" },
     durableObjectsPersist: options?.durablesPersist,
     bindings: options?.noSecret
-      ? { DRY_RUN: "true", ENVIRONMENT: "test", ADMIN_API_KEY: "test-admin-key" }
-      : { DRY_RUN: "true", ENVIRONMENT: "test", ADMIN_API_KEY: "test-admin-key", PII_ENCRYPTION_KEY: TEST_SECRET }
+      ? { ENVIRONMENT: "test", ADMIN_API_KEY: "test-admin-key" }
+      : { ENVIRONMENT: "test", ADMIN_API_KEY: "test-admin-key", PII_ENCRYPTION_KEY: TEST_SECRET }
   });
   instances.push(mf);
 
