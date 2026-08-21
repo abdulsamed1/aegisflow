@@ -1,5 +1,8 @@
 /**
  * Booking Engine — live booking only (DRY_RUN removed per operator request).
+ * NOTE: executeDirectHttpBooking/executeBatchFastPathBookings are DEAD for live booking;
+ * scheduled() uses Playwright wizard only (FR-7). Retained for payload helper tests.
+ * ponytail: keep helpers (formatDateForPortal, buildStep3DetailsPayload, parseBookingConfirmationReference) — scanner/wizard need them.
  */
 
 export interface DecryptedClientData {
