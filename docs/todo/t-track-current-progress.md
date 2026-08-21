@@ -21,6 +21,7 @@
 | Direct booking engine | ✅ 2026-08-21 | `executeDirectHttpBooking` + `executePlaywrightFallback` — full booking + `GESX-...` ref extraction |
 | Panel auth (Cloudflare Access) | ✅ 2026-08-20 | Whole domain behind login (panel + API) — cron unaffected |
 | Worker auth (`ADMIN_API_KEY`) | ✅ 2026-08-21 | `openssl rand -base64 32` → `wrangler secret put` + `wrangler deploy` — was `500` → now `401` w/o key, `200` w/ key |
+| **Auth hardening (OWASP A07)** | ✅ 2026-08-21 | Keyed-hash session cookie (`__Host-`, never raw key) · constant-time `safeEqual` · `?token=` removed · `POST /logout` · `Cache-Control: no-store` + CSP/nosniff/referrer headers · deploy `d2871709` |
 | Dual protection (Access + Worker) | ⚠️ Needs decision (see O) | `curl /api/status` returns `302 -> cloudflareaccess.com` before Worker — needs Service Token |
 | Legal authorization | ✅ D7 2026-08-19 | "I authorize appointment booking automation via BMEIA platform" — operator scope only, does not close G0 |
 | Telegram in system | ❌ Pending | Next phase — secrets missing |

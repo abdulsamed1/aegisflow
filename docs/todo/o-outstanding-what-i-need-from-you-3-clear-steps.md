@@ -4,7 +4,7 @@
 **What you saw:** `{"error":"ADMIN_API_KEY not configured in production"}` then after fix `302 -> cloudflareaccess.com`
 **Why:** Two auth layers — `src/index.ts:54` (Worker) + Cloudflare Access (Edge). Layer 1 fixed today, layer 2 still blocks API.
 **Do now:**
-1. Open panel in browser: `https://opran-booking.maakebda.workers.dev/?token=<NEW_ADMIN_API_KEY>` — will ask for Access login (OTP) first, then sets `opran_admin_token` cookie `src/index.ts:119` and loads `src/index.ts:1190` `GET /api/status`.
+1. Open panel in browser: `https://opran-booking.maakebda.workers.dev/` — will ask for Access login (OTP) first, then the Worker Basic dialog (username: anything, password: `ADMIN_API_KEY`) → sets `__Host-opran_admin_token` session cookie and loads `GET /api/status`.
 
 ## Step 2 — Choose API security model 
 

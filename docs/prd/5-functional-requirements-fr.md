@@ -54,8 +54,8 @@
   - `CRITICAL`: Daily browser budget reaching 90%, repeated portal errors, consecutive check failures (>5).
 
 ## FR-10: Operator Admin Dashboard
-- Single-page web application **embedded in the Worker** `src/index.ts:690 getAdminHTML()` (not separate Static Assets) — same-origin to `/api/*` so `fetch()` `1134,1140,1172,1190,1196` authenticates via `opran_admin_token` + `CF_Authorization` cookies (no `X-API-Key`/`CF-Access-*` in JS, audited 2026-08-21).
+- Single-page web application **embedded in the Worker** `src/index.ts getAdminHTML()` (not separate Static Assets) — same-origin to `/api/*` so `fetch()` authenticates via `__Host-opran_admin_token` + `CF_Authorization` cookies (no `X-API-Key`/`CF-Access-*` in JS, audited 2026-08-21).
 - Functions: Client listing, status filtering, client creation/editing/**deletion**, job activation/pausing/cancellation, audit log viewer, live metrics (checks/hr, slot hit rate).
-- Auth: Access edge login (OTP) → Worker `GET /?token=<key>` `src/index.ts:114-122` sets `opran_admin_token` HttpOnly cookie `119`, or `Basic` realm `102`; cron `scheduled()` `473` unaffected.
+- Auth: Access edge login (OTP) → Worker `GET /` Basic dialog or header auth, session cookie `__Host-opran_admin_token` = `base64(SHA-256("opran-session-v1|<key>"))` (`HttpOnly; Secure; SameSite=Strict; Max-Age=86400`) — never the raw key; constant-time compares; `POST /logout` clears it; cron `scheduled()` unaffected. `?token=` URL auth removed (log/referrer leak).
 
 ---
