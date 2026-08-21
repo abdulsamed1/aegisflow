@@ -82,13 +82,20 @@ export async function scanAvailability(
 
     const html = await response.text();
 
-    // G0 detection contract (3-state):
-    // 1. message-error / "no appointments available" -> NO_SLOTS
-    // 2. Scheduler page without error and non-empty week grid -> SLOTS
+    // G0 detection contract (3-state), verified against live portal 2026-08-22:
+    // 1. "no appointments available" -> NO_SLOTS (the empty-calendar message-error text contains it)
+    // 2. bookable slot radios (value "M/D/YYYY H:MM:SS AM") -> SLOTS.
+    //    NOTE: a page WITH slots also carries <p class="message-error">Please choose an appointment!</p>
+    //    so a blanket message-error check false-negatives every open calendar — do not reintroduce it.
     // 3. anything else -> UNKNOWN (never triggers a booking)
-    const noSlots = html.includes("no appointments available") || html.includes("message-error");
+    const noSlots = /no appointments available/i.test(html);
     if (noSlots) {
       return { status: "NO_SLOTS", hasSlots: false, rawResponseLength: html.length, durationMs, matchedMonday: mondayDateString };
+    }
+
+    const slotRadios = html.match(/<input[^>]*type="radio"[^>]*value="\s*\d{1,2}\/\d{1,2}\/\d{4}[^"]*"[^>]*>/i);
+    if (slotRadios) {
+      return { status: "SLOTS", hasSlots: true, rawResponseLength: html.length, durationMs, matchedMonday: mondayDateString };
     }
 
     const form = html.match(/<form action="\/HomeWeb\/Scheduler"[\s\S]*?<\/form>/);
