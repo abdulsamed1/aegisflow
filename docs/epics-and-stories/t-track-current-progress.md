@@ -2,11 +2,11 @@
 
 | Phase | Status | Details |
 |---|---|---|
-| Portal contract (G0 — discovery) | ✅ Done | `POST /HomeWeb/Scheduler` verified with live sessions, calendar IDs (`44281520` / `44279679`), ~270ms avg — `docs/portal-automation-spec.md` |
+| Portal contract (G0 — discovery) | ✅ Done | `POST /HomeWeb/Scheduler` verified with live sessions, target calendar ID `44281520` (Bachelor MVP; repaired scanner contract for `message-error` vs `SLOTS`), ~270ms avg — `docs/portal-automation-spec.md` |
 | Availability scanner | ✅ 2026-08-20 | Rolling 8-week horizon (`rollingMondays`) per job — D5 decision implemented & tested |
 | Scheduler | ✅ 2026-08-20 | **D5 amended:** Global window 07:00–18:00 Cairo daily (incl. Friday) — exits before DB read, unit-tested |
 | Job lifetime | ✅ 2026-08-20 | **D8:** No `EXPIRED` path; legacy columns written with global constants, never read by scheduler |
-| Client model | ✅ CRUD + validation 2026-08-21 | Create/update/delete + prefill fields + BOOKED lock + **category Enum check (HTTP 400)** — 63/63 tests |
+| Client model | ✅ CRUD + validation 2026-08-22 | Create/update/delete + prefill fields + BOOKED lock + **Bachelor-only category constraint & repaired scanner** — 117/117 tests |
 | Live schema check (LONDON stage) | ✅ 2026-08-21 | Verified `MM/DD/YYYY` date format, split ZIP/City fields, English CAPTCHA |
 | Docs sync | ✅ 2026-08-21 | `docs/prd.md`, `architecture.md`, `ux-spec.md`, `epics-and-stories.md` — fully aligned |
 | API validation hardening | ✅ 2026-08-21 | Strict `category` check for POST/PUT to prevent 500s |
