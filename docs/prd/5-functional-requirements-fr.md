@@ -18,6 +18,7 @@
 
 ## FR-4: Fair Scheduler Engine (Global Cairo Window)
 - Scheduler shall run via Cloudflare Worker Cron Trigger every 1 minute, **only inside the global Cairo window 07:00–18:00, daily including Friday** (D5 as amended 2026-08-20); outside the window each tick exits immediately.
+- **Burst scanning (2026-08-21, ponytail free-tier safe)**: native Cron is limited to 1/min, so each tick repeats the 8-Monday scan `SCAN_BURSTS` times via `parseScanBursts()` (default 2 ≈ every 30s, cap 2 on Free tier / 12 on Workers Paid). Free cap 2 keeps fetches + D1 under 50 subrequests/invocation; `setTimeout(30000)` between bursts gives even spacing. Budget: 3 jobs × 8 × 2 × 660 ≈31k req/day + aggregated `NO_APPOINTMENT` logs (was 95k with 6×). Configurable via `wrangler.toml [vars] SCAN_BURSTS`.
 - Fairness Algorithm: Selects up to 3 `ACTIVE` jobs per tick ordered strictly by **oldest `last_check` timestamp** (measuring outstanding backlog, NOT daily attempt counts).
 - Rolling Horizon Scan: Each job's availability scan covers the current week plus the next 7 weeks (8 Mondays, global constant in `src/scheduler.ts`) — the portal accepts any `Monday` value (G0 §5).
 - Backoff Policy: Jobs with `TEMPORARY_ERROR` or `BOOKING_FAILED` apply exponential backoff (2, 4, 8, 16, 32, max 60 minutes).

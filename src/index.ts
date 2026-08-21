@@ -22,6 +22,13 @@ export interface Env {
   ADMIN_API_KEY?: string;
   CAPTCHA_API_KEY?: string;
   ENVIRONMENT?: string;
+  SCAN_BURSTS?: string;
+}
+
+// ponytail: one-liner burst clamp — Free tier 50 subrequests/invocation caps bursting to 2 (2*8*3≈48 fetches + D1 stays <50)
+export function parseScanBursts(v?: string): number {
+  const n = parseInt(v ?? "2", 10);
+  return Number.isFinite(n) ? Math.min(2, Math.max(1, n)) : 2;
 }
 
 function requireSecret(env: Env): string | null {
@@ -556,44 +563,34 @@ export default {
     const bgTasks: Promise<any>[] = [];
 
     await Promise.all(jobs.map(async (job) => {
-      // Parallelize 8-week scan for this job
-      const scanPromises = mondays.map(mondayStr => scanAvailability(job.calendar_id, mondayStr, sessionCookie));
-      const scanResults = await Promise.all(scanPromises);
-
-      // We only care if we found a slot, or track the first unknown error if all fail
-      const slotResult = scanResults.find(r => r.status === "SLOTS");
-      const unknownResult = scanResults.find(r => r.status === "UNKNOWN");
-      
-      // Background DB Logging
-      bgTasks.push(env.DB.prepare(
-        `UPDATE jobs SET last_check = CURRENT_TIMESTAMP, check_count = check_count + 8 WHERE id = ?`
-      ).bind(job.id).run());
-      
-      bgTasks.push(env.DB.prepare(
-        `INSERT INTO daily_metrics (date, total_checks) VALUES (DATE('now'), 8)
-         ON CONFLICT(date) DO UPDATE SET total_checks = total_checks + 8`
-      ).run());
-      
-      // Log all scan results
-      for (const result of scanResults) {
-        const eventType = result.status === "SLOTS" ? "APPOINTMENT_FOUND" : result.status === "UNKNOWN" ? "UNKNOWN_RESPONSE" : "NO_APPOINTMENT";
-        bgTasks.push(env.DB.prepare(
-          `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
-           VALUES (?, ?, ?, ?, ?)`
-        ).bind(job.id, job.client_id, eventType, result.durationMs, JSON.stringify({ week: result.matchedMonday, responseLength: result.rawResponseLength, error: result.errorMessage })).run());
+      // ponytail: 2×/min = every 30s coverage; 2*8*660*3 jobs ≈31k/day <200k free (Free cap 50 subrequests/invocation — 6× would exceed)
+      const bursts = parseScanBursts(env.SCAN_BURSTS);
+      let slotResult: Awaited<ReturnType<typeof scanAvailability>> | undefined;
+      let unknownResult: Awaited<ReturnType<typeof scanAvailability>> | undefined;
+      let totalScanChecks = 0;
+      let noSlotAggregated = 0;
+      for (let b = 0; b < bursts; b++) {
+        const scanResults = await Promise.all(mondays.map(m => scanAvailability(job.calendar_id, m, sessionCookie)));
+        totalScanChecks += scanResults.length;
+        for (const r of scanResults) {
+          if (r.status === "NO_SLOTS") { noSlotAggregated++; continue; }
+          const eventType = r.status === "SLOTS" ? "APPOINTMENT_FOUND" : "UNKNOWN_RESPONSE";
+          bgTasks.push(env.DB.prepare(`INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details) VALUES (?, ?, ?, ?, ?)`).bind(job.id, job.client_id, eventType, r.durationMs, JSON.stringify({ week: r.matchedMonday, responseLength: r.rawResponseLength, error: r.errorMessage, burst: b })).run());
+        }
+        const found = scanResults.find(r => r.status === "SLOTS");
+        const unk = scanResults.find(r => r.status === "UNKNOWN");
+        if (found) { slotResult = found; if (unk && !unknownResult) unknownResult = unk; break; }
+        if (unk && !unknownResult) unknownResult = unk;
+        if (b < bursts - 1) await new Promise(r => setTimeout(r, 30000));
       }
-
+      if (noSlotAggregated) bgTasks.push(env.DB.prepare(`INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details) VALUES (?, ?, 'NO_APPOINTMENT', 0, ?)`).bind(job.id, job.client_id, JSON.stringify({ aggregated: noSlotAggregated, bursts, weeks: mondays.length })).run());
+      bgTasks.push(env.DB.prepare(`UPDATE jobs SET last_check = CURRENT_TIMESTAMP, check_count = check_count + ? WHERE id = ?`).bind(totalScanChecks, job.id).run());
+      bgTasks.push(env.DB.prepare(`INSERT INTO daily_metrics (date, total_checks) VALUES (DATE('now'), ?) ON CONFLICT(date) DO UPDATE SET total_checks = total_checks + ?`).bind(totalScanChecks, totalScanChecks).run());
       if (slotResult) {
-        bgTasks.push(env.DB.prepare(
-          `INSERT INTO daily_metrics (date, slots_found) VALUES (DATE('now'), 1)
-           ON CONFLICT(date) DO UPDATE SET slots_found = slots_found + 1`
-        ).run());
+        bgTasks.push(env.DB.prepare(`INSERT INTO daily_metrics (date, slots_found) VALUES (DATE('now'), 1) ON CONFLICT(date) DO UPDATE SET slots_found = slots_found + 1`).run());
       } else if (unknownResult) {
-        bgTasks.push(env.DB.prepare(
-          `UPDATE jobs SET last_error_code = ? WHERE id = ?`
-        ).bind(unknownResult.errorMessage || "UNKNOWN_RESPONSE", job.id).run());
+        bgTasks.push(env.DB.prepare(`UPDATE jobs SET last_error_code = ? WHERE id = ?`).bind(unknownResult.errorMessage || "UNKNOWN_RESPONSE", job.id).run());
       }
-
       if (!slotResult) return;
 
       const slotMonday = slotResult.matchedMonday;
