@@ -44,7 +44,7 @@ Row actions (rendered only when `jobId` exists and status is neither `CANCELLED`
 Failure states:
 - **Loading:** 3 skeleton shimmer rows (`colspan=5`) replace the tbody until `/api/clients` resolves.
 - **Empty:** composed block — 📋 icon, «لا يوجد مرشحون بعد», muted guidance line («أضف أول مرشح ليبدأ النظام بالفحص في نافذة 07:00 – 18:00»), and a primary CTA re-opening the add modal.
-- **Auth:** `GET /` `src/index.ts:98` returns `401 WWW-Authenticate: Basic` if no `opran_admin_token` cookie; `fetch('/api/*')` `1134,1140,1172,1190,1196` returns `401 Unauthorized` unless cookie present. Same-origin cookies (`CF_Authorization` from Access + `opran_admin_token` `119`) are sent automatically — no `X-API-Key`/`CF-Access-*` in `getAdminHTML()` JS (audited).
+- **Auth:** `GET /` returns `401 WWW-Authenticate: Basic` if no `__Host-opran_admin_token` session cookie (cookie = keyed hash of the key, `Secure; HttpOnly; SameSite=Strict`); successful Basic login sets the cookie; `fetch('/api/*')` returns `401 Unauthorized` unless cookie present. Same-origin cookies (`CF_Authorization` from Access + session cookie) are sent automatically — no `X-API-Key`/`CF-Access-*` in `getAdminHTML()` JS (audited).
 
 Terminal rows (`BOOKED` / `CANCELLED`) render **no actions** — nothing to resurrect, per D8. BOOKED rows are additionally protected server-side (403).
 
