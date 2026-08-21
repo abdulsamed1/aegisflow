@@ -8,7 +8,6 @@ compatibility_flags = ["nodejs_compat"]
 mode = "smart"
 
 [vars]
-DRY_RUN = "true"
 ENVIRONMENT = "production"
 
 # Cloudflare D1 Database Binding

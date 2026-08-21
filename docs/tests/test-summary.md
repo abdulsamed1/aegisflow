@@ -15,7 +15,7 @@ Generated and executed automated API & E2E tests for candidate CRUD endpoints, s
 ## Test Coverage Breakdown
 
 ### 1. API Endpoints (`test/api.test.ts`)
-- [x] `GET /api/status` — Returns operational status metrics and dryRun flag.
+- [x] `GET /api/status` — Returns operational status metrics (live only).
 - [x] `GET /api/clients` — Decrypts stored PII and returns masked passport strings.
 - [x] `POST /api/clients` — Creates encrypted candidate records and validates required fields & enums (400 Bad Request on invalid category).
 - [x] `PUT /api/clients/:id` — Updates existing candidate data, recomputes calendarId, and handles empty passport string preservation.
@@ -37,4 +37,4 @@ Generated and executed automated API & E2E tests for candidate CRUD endpoints, s
 
 ## Next Steps
 - Execute automated suite in CI pipeline (`npm test`).
-- Maintain dry-run gating until production slot window re-opens.
+- Live booking only — `DRY_RUN` retired 2026-08-21.
