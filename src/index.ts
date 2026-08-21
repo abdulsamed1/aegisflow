@@ -7,6 +7,7 @@ import { DecryptedClientData } from "./booking-http";
 import { executePlaywrightFallback } from "./browser-fallback";
 import { isCircuitBreakerTripped, getBackoffUntilISO } from "./backoff";
 import { decideReverifyAction, decideRetryAction } from "./booking-flow";
+import { checkPreSubmitGate } from "./pre-submit-gate";
 
 export { JobLockDO };
 
@@ -228,7 +229,7 @@ export default {
         if (!secret) return secretErrorResponse();
 
         const requiredFields = ["firstName", "lastName", "passportNumber", "passportExpiry", "dob",
-          "email", "phone", "category", "familyNameAtBirth", "placeOfBirth", "countryOfBirth",
+          "email", "phone", "category", "nationality", "familyNameAtBirth", "placeOfBirth", "countryOfBirth",
           "nationalityAtBirth", "street", "postalCode", "city", "passportIssueDate", "passportIssuingCountry"];
         const missing = requiredFields.find((f) => typeof body[f] !== "string" || !body[f].trim());
         if (missing) {
@@ -329,7 +330,7 @@ export default {
         if (!secret) return secretErrorResponse();
 
         const requiredFields = ["firstName", "lastName", "passportNumber", "passportExpiry", "dob",
-          "email", "phone", "category", "familyNameAtBirth", "placeOfBirth", "countryOfBirth",
+          "email", "phone", "category", "nationality", "familyNameAtBirth", "placeOfBirth", "countryOfBirth",
           "nationalityAtBirth", "street", "postalCode", "city", "passportIssueDate", "passportIssuingCountry"];
         const missing = requiredFields.find((f) => f === "passportNumber"
           ? typeof body[f] !== "string"
@@ -670,6 +671,21 @@ export default {
           `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
            VALUES (?, ?, 'SLOT_GONE_PRE_LAUNCH', ?, ?)`
         ).bind(job.id, job.client_id, reverify.durationMs, JSON.stringify({ week: slotMonday, status: reverify.status })).run());
+        return;
+      }
+
+      // Pre-submit gate: validate all required fields before burning browser budget
+      const gate = checkPreSubmitGate(decryptedClient);
+      if (!gate.ready) {
+        console.error(`[PRE-SUBMIT GATE] BLOCKED for Job ${job.id}: ${gate.blockers.join("; ")}`);
+        await doStub.fetch("https://lock/release");
+        await env.DB.prepare(
+          `UPDATE jobs SET status = 'ACTIVE', last_error_code = ? WHERE id = ?`
+        ).bind(`PRE_SUBMIT_GATE: ${gate.blockers[0]}`, job.id).run();
+        bgTasks.push(env.DB.prepare(
+          `INSERT INTO audit_logs (job_id, client_id, event_type, details)
+           VALUES (?, ?, 'PRE_SUBMIT_BLOCKED', ?)`
+        ).bind(job.id, job.client_id, JSON.stringify({ blockers: gate.blockers })).run());
         return;
       }
 
@@ -1177,6 +1193,11 @@ function getAdminHTML(): string {
             <input class="form-control" type="tel" id="phone" required placeholder="+201000000000" style="direction: ltr;">
           </div>
         </div>
+        <div class="form-group">
+          <label>الجنسية (للتقديم)</label>
+          <input class="form-control" type="text" id="nationality" required placeholder="Egyptian" value="Egyptian">
+          <div class="form-hint">القيمة المرسلة لحقل NationalityForApplication في البوابة — "Egyptian" للمصريين</div>
+        </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-light" onclick="closeModal()">إلغاء</button>
           <button type="submit" class="btn btn-primary" id="client-submit-btn">حفظ وإنشاء المهمة</button>
@@ -1217,6 +1238,7 @@ function getAdminHTML(): string {
       document.getElementById('passportNumber').required = false;
       v('passportExpiry', c.passportExpiry); v('dob', c.dob); v('gender', c.gender);
       v('email', c.email); v('phone', c.phone);
+      v('nationality', c.nationality);
       document.getElementById('client-form-error').classList.add('d-none');
       document.getElementById('client-modal').style.display = 'flex';
     }
@@ -1258,7 +1280,7 @@ function getAdminHTML(): string {
         gender: document.getElementById('gender').value,
         email: document.getElementById('email').value,
         phone: document.getElementById('phone').value,
-        nationality: 'Egyptian'
+        nationality: document.getElementById('nationality').value || 'Egyptian'
       };
       const res = await fetch(editingClientId ? '/api/clients/' + editingClientId : '/api/clients', {
         method: editingClientId ? 'PUT' : 'POST',
