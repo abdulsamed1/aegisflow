@@ -1,5 +1,5 @@
 import { DecryptedClientData, formatDateForPortal, parseBookingConfirmationReference } from "./booking-http";
-import { solveCaptcha } from "./captcha";
+import { solveCaptcha, solveCaptchaAudio } from "./captcha";
 
 export interface BrowserFallbackResult {
   success: boolean;
@@ -165,26 +165,55 @@ export async function executePlaywrightFallback(
         return img && img.complete && img.naturalWidth > 0;
       }).catch(() => null);
 
-      // Screenshot the captcha image element specifically if possible
-      let imgBase64: string | null = null;
+      let code: string | null = null;
+
+      // Primary: SOUND channel — clean isolated speech beats distorted-image OCR on first attempts.
+      // ponytail: BotDetect exposes get=sound on the same handler URL; fetch in page context keeps session cookies
       try {
-        const buf = await captchaImg.screenshot({ type: "png" }).catch(() => null);
-        if (buf) imgBase64 = buf.toString("base64");
-      } catch {}
-      if (!imgBase64) {
-        // Fallback: full page screenshot — solver can still attempt
-        const full = await page.screenshot({ type: "jpeg", quality: 60 }).catch(() => null);
-        if (full) imgBase64 = full.toString("base64");
-      }
-      if (imgBase64) {
-        try {
-          const code = await solveCaptcha(imgBase64, opts?.ai);
-          await fill('input#CaptchaText, input[name="CaptchaText"]', code);
-        } catch (e: any) {
-          const dur = (Date.now() - startTime) / 1000.0;
-          const shot = await page.screenshot({ type: "jpeg", quality: 60 }).catch(() => null);
-          return { success: false, durationSeconds: dur, screenshotBase64: shot ? shot.toString("base64") : undefined, errorMessage: `CAPTCHA solve failed: ${e.message}` };
+        const imgSrc = await captchaImg.evaluate((el: any) => (el as any).src);
+        if (imgSrc && /BotDetect/i.test(imgSrc)) {
+          const soundUrl = imgSrc.replace(/get=\w+/, 'get=sound');
+          const wavB64 = await page.evaluate(async (u: string) => {
+            // @ts-ignore — browser context fetch, credentials/HTMLImageElement not in workers lib
+            const r = await fetch(u, { credentials: 'include' });
+            const buf = await r.arrayBuffer();
+            let bin = '';
+            const bytes = new Uint8Array(buf);
+            for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+            return btoa(bin);
+          }, soundUrl).catch(() => null);
+          if (wavB64) {
+            const bytes = new Uint8Array(atob(wavB64).length);
+            const bin2 = atob(wavB64);
+            for (let i = 0; i < bin2.length; i++) bytes[i] = bin2.charCodeAt(i);
+            code = await solveCaptchaAudio(bytes, opts?.ai).catch(() => null);
+          }
         }
+      } catch {}
+
+      // Fallback: image screenshot -> vision model -> tesseract
+      if (!code) {
+        let imgBase64: string | null = null;
+        try {
+          const buf = await captchaImg.screenshot({ type: "png" }).catch(() => null);
+          if (buf) imgBase64 = buf.toString("base64");
+        } catch {}
+        if (!imgBase64) {
+          const full = await page.screenshot({ type: "jpeg", quality: 60 }).catch(() => null);
+          if (full) imgBase64 = full.toString("base64");
+        }
+        if (imgBase64) {
+          try {
+            code = await solveCaptcha(imgBase64, opts?.ai);
+          } catch (e: any) {
+            const dur = (Date.now() - startTime) / 1000.0;
+            const shot = await page.screenshot({ type: "jpeg", quality: 60 }).catch(() => null);
+            return { success: false, durationSeconds: dur, screenshotBase64: shot ? shot.toString("base64") : undefined, errorMessage: `CAPTCHA solve failed: ${e.message}` };
+          }
+        }
+      }
+      if (code) {
+        await fill('input#CaptchaText, input[name="CaptchaText"]', code);
       }
     }
 

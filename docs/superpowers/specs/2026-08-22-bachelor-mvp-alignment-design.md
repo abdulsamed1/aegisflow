@@ -65,3 +65,4 @@ This document details the design for restricting the BMEIA appointment automatio
 ## Verification Plan
 1. **TypeScript Typecheck**: Run `npm run typecheck` to ensure no compile errors.
 2. **Unit & Integration Tests**: Run `node --import tsx --test test/*.test.ts` to verify all 117 tests pass successfully.
+

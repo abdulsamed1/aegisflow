@@ -53,3 +53,23 @@ test("captcha: worker termination is idempotent and does not throw when called r
   await terminateCaptchaWorker();
   assert.ok(true, "Repeated worker termination completed safely");
 });
+
+// --- Audio channel (BotDetect get=sound -> whisper) ---
+
+test("captcha audio: parseAudioTranscription strips separators and collapses stutters", async () => {
+  const { parseAudioTranscription } = await import("../src/captcha");
+  assert.strictEqual(parseAudioTranscription("T, D, R, 5, 8."), "TDR58");
+  assert.strictEqual(parseAudioTranscription("9, 4, 3, 2, 3, 2, 1,"), "943232"); // capped at 6; solver retries with larger model on bad length
+  assert.strictEqual(parseAudioTranscription("B. B. 4. J."), "B4J"); // consecutive dup collapse
+  assert.strictEqual(parseAudioTranscription(""), "");
+});
+
+test("captcha audio: solveCaptchaAudio rejects empty input without calling AI", async () => {
+  const { solveCaptchaAudio } = await import("../src/captcha");
+  let called = false;
+  await assert.rejects(
+    () => solveCaptchaAudio(new Uint8Array(0), { run: async () => { called = true; return {}; } }),
+    /Empty CAPTCHA audio/
+  );
+  assert.strictEqual(called, false);
+});
