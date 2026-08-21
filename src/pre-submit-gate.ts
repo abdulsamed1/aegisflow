@@ -10,7 +10,8 @@ export interface GateResult {
   blockers: string[];
 }
 
-const KNOWN_CALENDAR_IDS = [44281520] as const;
+export const CANONICAL_CALENDAR_ID = 44281520;
+const KNOWN_CALENDAR_IDS = [CANONICAL_CALENDAR_ID] as const;
 const VALID_GENDERS = ["Male", "Female"] as const;
 const VALID_CATEGORIES = ["Bachelor"] as const;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
