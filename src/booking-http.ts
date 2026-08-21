@@ -159,13 +159,15 @@ export function formatDateForPortal(isoDate: string): string {
 
 /**
  * Pre-serialize Step 3 personal details & CAPTCHA payload matching live portal specification.
- * Form fields match live portal screenshots (18 PII fields, split postal code & city, MM/DD/YYYY dates, GDPR consent, CAPTCHA).
+ * Field names verified via London E2E (scratchpad_hkcax71f.md): 31 fields incl. BDC_* hidden.
+ * ponytail: keep fabricated AppointmentDate/TimeSlot for backward compat but prefer StartTime + hidden Token/BDC
  */
 export function buildStep3DetailsPayload(
   client: DecryptedClientData,
   captchaText: string,
   appointmentDate?: string,
-  timeSlot?: string
+  timeSlot?: string,
+  hidden?: { token?: string; startTime?: string; bdc?: { vcid: string; hs: string; sp: string; bw: string } }
 ): string {
   const params = new URLSearchParams();
   params.append("Language", "en");
@@ -173,29 +175,38 @@ export function buildStep3DetailsPayload(
   params.append("CalendarId", client.calendarId.toString());
   params.append("PersonCount", "1");
 
-  if (appointmentDate) params.append("AppointmentDate", appointmentDate);
+  if (hidden?.token) params.append("Token", hidden.token);
+  // Prefer explicit StartTime from hidden, fallback to legacy appointmentDate
+  const startTime = hidden?.startTime || appointmentDate;
+  if (startTime) params.append("StartTime", startTime);
   if (timeSlot) params.append("TimeSlot", timeSlot);
 
-  params.append("LastName", client.lastName);
-  params.append("FirstName", client.firstName);
-  params.append("DOB", formatDateForPortal(client.dob));
-  params.append("PassportNumber", client.passportNumber);
-  params.append("Gender", client.gender);
+  params.append("Lastname", client.lastName);
+  params.append("Firstname", client.firstName);
+  params.append("DateOfBirth", formatDateForPortal(client.dob));
+  params.append("TraveldocumentNumber", client.passportNumber);
+  params.append("Sex", client.gender);
   params.append("Street", client.street);
-  params.append("PostalCode", client.postalCode);
+  params.append("Postcode", client.postalCode);
   params.append("City", client.city);
   params.append("Country", client.countryOfBirth || "EGYPT");
-  params.append("Phone", client.phone);
+  params.append("Telephone", client.phone);
   params.append("Email", client.email);
-  params.append("FamilyNameAtBirth", client.familyNameAtBirth);
+  params.append("LastnameAtBirth", client.familyNameAtBirth);
   params.append("NationalityAtBirth", client.nationalityAtBirth);
   params.append("CountryOfBirth", client.countryOfBirth);
   params.append("PlaceOfBirth", client.placeOfBirth);
-  params.append("CurrentNationality", client.nationality);
-  params.append("PassportIssueDate", formatDateForPortal(client.passportIssueDate));
-  params.append("PassportExpiry", formatDateForPortal(client.passportExpiry));
-  params.append("PassportIssuingCountry", client.passportIssuingCountry);
-  params.append("Consent", "true");
+  params.append("NationalityForApplication", client.nationality);
+  params.append("TraveldocumentDateOfIssue", formatDateForPortal(client.passportIssueDate));
+  params.append("TraveldocumentValidUntil", formatDateForPortal(client.passportExpiry));
+  params.append("TraveldocumentIssuingAuthority", client.passportIssuingCountry);
+  params.append("DSGVOAccepted", "true");
+  if (hidden?.bdc) {
+    params.append("BDC_VCID_Captcha", hidden.bdc.vcid);
+    params.append("BDC_BackWorkaround_Captcha", hidden.bdc.bw);
+    params.append("BDC_Hs_Captcha", hidden.bdc.hs);
+    params.append("BDC_SP_Captcha", hidden.bdc.sp);
+  }
   params.append("CaptchaText", captchaText);
   params.append("Command", "Save");
 

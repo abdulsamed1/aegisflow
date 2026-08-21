@@ -503,3 +503,61 @@ test("Integration: invalid category value is rejected by Worker API with 400, an
   );
 });
 
+test("Integration: DELETE returns 423 when DO lock is held mid-flight", async () => {
+  const mf = await startWorker();
+  const createRes = await mf.dispatchFetch("https://opran.local/api/clients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      firstName: "Ahmed", lastName: "Hassan", category: "Bachelor",
+      familyNameAtBirth: "Hassan", placeOfBirth: "Cairo", countryOfBirth: "Egypt",
+      nationalityAtBirth: "Egyptian", street: "15 Tahrir Square", postalCode: "11511",
+      city: "Cairo", passportIssueDate: "2018-06-15", passportIssuingCountry: "Egypt",
+      passportNumber: "A12345678", passportExpiry: "2030-01-01",
+      dob: "1990-05-05", gender: "Male", nationality: "Egyptian",
+      email: "ahmed@example.com", phone: "+201000000000"
+    })
+  });
+  const created = await createRes.json() as any;
+  const ns = await mf.getDurableObjectNamespace("JOB_LOCK");
+  const stub = ns.get(ns.idFromName(created.jobId));
+  const acq = await stub.fetch("https://lock/acquire");
+  assert.strictEqual(acq.status, 200, "setup: lock must be held");
+
+  const delLocked = await mf.dispatchFetch(`https://opran.local/api/clients/${created.clientId}`, { method: "DELETE" });
+  assert.strictEqual(delLocked.status, 423, "DELETE while DO lock held must be 423");
+
+  await stub.fetch("https://lock/release");
+  const delOk = await mf.dispatchFetch(`https://opran.local/api/clients/${created.clientId}`, { method: "DELETE" });
+  assert.strictEqual(delOk.status, 200, "DELETE after release must succeed");
+});
+
+test("Integration: concurrent DO lock acquire — exactly one succeeds (double-booking guard)", async () => {
+  const mf = await startWorker();
+  const ns = await mf.getDurableObjectNamespace("JOB_LOCK");
+  const id = ns.newUniqueId();
+  const stub = ns.get(id);
+  const [r1, r2] = await Promise.all([stub.fetch("https://lock/acquire"), stub.fetch("https://lock/acquire")]);
+  const statuses = [r1.status, r2.status].sort();
+  assert.deepStrictEqual(statuses, [200, 409], "exactly one of two concurrent acquires must succeed, the other 409");
+});
+
+test("Integration: DO /status reports locked/sealed correctly", async () => {
+  const mf = await startWorker();
+  const ns = await mf.getDurableObjectNamespace("JOB_LOCK");
+  const id = ns.newUniqueId();
+  const stub = ns.get(id);
+  let s = await (await stub.fetch("https://lock/status")).json() as any;
+  assert.strictEqual(s.locked, false);
+  assert.strictEqual(s.sealed, false);
+  await stub.fetch("https://lock/acquire");
+  s = await (await stub.fetch("https://lock/status")).json() as any;
+  assert.strictEqual(s.locked, true);
+  await stub.fetch("https://lock/seal");
+  s = await (await stub.fetch("https://lock/status")).json() as any;
+  assert.strictEqual(s.sealed, true);
+  assert.strictEqual(s.locked, false);
+  const r = await stub.fetch("https://lock/acquire");
+  assert.strictEqual(r.status, 409);
+});
+

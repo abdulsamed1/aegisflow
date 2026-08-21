@@ -2,8 +2,8 @@
 
 1. مشغل واحد يسجل دخوله وينشئ عميلًا بالبيانات الكاملة ويفعّل وظيفة.
 2. الجدولة تعمل كل دقيقة داخل نافذة 07:00–18:00 بتوقيت القاهرة وتفحص أفق 8 أسابيع متداولًا (اختبار النافذة والأفق يميز التصميم الجديد عن القديم).
-3. فحص يكتشف موعدًا مطابقًا للقواعد في وضع Dry-Run ويسجل النتيجة بلا Submit.
-4. لا يحدث أي Submit قبل إغلاق بوابة G0 ورفع Dry-Run بشكل صريح.
+3. ~~فحص يكتشف موعدًا مطابقًا للقواعد في وضع Dry-Run ويسجل النتيجة بلا Submit.~~ Superseded 2026-08-21 — AD-6 retired DRY_RUN; now live booking with Playwright wizard + 2captcha, verified schedule window.
+4. ~~لا يحدث أي Submit قبل إغلاق بوابة G0 ورفع Dry-Run بشكل صريح.~~ Superseded 2026-08-21 — live booking enabled; G0 partially closed by London evidence, KAIRO confirmation still UNVERIFIED.
 5. محاولتان متوازيتان لنفس العميل لا تنتجان حجزًا مزدوجًا (اختبار تكامل يميز السلوك الصحيح).
 6. بعد BOOKED: إشعار Telegram خلال دقيقة، وتوقف دائم لكل الفحوصات على هذا العميل.
 7. كل فشل يُسجل بـ`error_code` وتُعاد المحاولة وفق backoff.
