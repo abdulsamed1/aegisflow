@@ -248,8 +248,8 @@ export default {
           });
         }
 
-        if (body.category !== "Bachelor" && body.category !== "Master_PhD") {
-          return new Response(JSON.stringify({ error: "Invalid category. Must be 'Bachelor' or 'Master_PhD'" }), {
+        if (body.category !== "Bachelor") {
+          return new Response(JSON.stringify({ error: "Invalid category. Must be 'Bachelor'" }), {
             status: 400,
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
@@ -267,7 +267,7 @@ export default {
         const emailEnc = await encryptPII(body.email, secret);
         const phoneEnc = await encryptPII(body.phone, secret);
 
-        const calendarId = body.category === "Master_PhD" ? 44279679 : 44281520;
+        const calendarId = 44281520;
 
         await env.DB.prepare(
           `INSERT INTO clients (id, first_name_enc, last_name_enc, gender, dob, nationality, passport_number_enc, passport_expiry, email_enc, phone_enc, family_name_at_birth_enc, place_of_birth, country_of_birth, nationality_at_birth, address_street_enc, address_postal_code_enc, address_city_enc, passport_issue_date, passport_issuing_country, category, calendar_id)
@@ -351,8 +351,8 @@ export default {
           });
         }
 
-        if (body.category !== "Bachelor" && body.category !== "Master_PhD") {
-          return new Response(JSON.stringify({ error: "Invalid category. Must be 'Bachelor' or 'Master_PhD'" }), {
+        if (body.category !== "Bachelor") {
+          return new Response(JSON.stringify({ error: "Invalid category. Must be 'Bachelor'" }), {
             status: 400,
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
@@ -376,7 +376,7 @@ export default {
           passportEnc = await encryptPII(body.passportNumber, secret);
         }
 
-        const calendarId = body.category === "Master_PhD" ? 44279679 : 44281520;
+        const calendarId = 44281520;
 
         await env.DB.prepare(
           `UPDATE clients SET first_name_enc = ?, last_name_enc = ?, gender = ?, dob = ?, nationality = ?,
@@ -1179,7 +1179,6 @@ function getAdminHTML(): string {
           <label>فئة الحجز</label>
           <select class="form-select" id="category">
             <option value="Bachelor">بكالوريوس / تعليم جامعي</option>
-            <option value="Master_PhD">ماجستير / دكتوراه / منح دراسية</option>
           </select>
         </div>
         <div class="global-rules">
