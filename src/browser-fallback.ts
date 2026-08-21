@@ -155,13 +155,9 @@ export async function executePlaywrightFallback(
     if (consent) await consent.check().catch(() => null);
 
     // CAPTCHA: Captcha_CaptchaImage + CaptchaText (BDC_* hidden fields are auto-submitted)
+    // ponytail: open-source local OCR (tesseract.js) — no API key, no polling, free per D3
     const captchaImg = await page.$('#Captcha_CaptchaImage, img[id*="Captcha"]');
     if (captchaImg) {
-      if (!opts?.captchaApiKey) {
-        const dur = (Date.now() - startTime) / 1000.0;
-        const shot = await page.screenshot({ type: "jpeg", quality: 60 }).catch(() => null);
-        return { success: false, durationSeconds: dur, screenshotBase64: shot ? shot.toString("base64") : undefined, errorMessage: "CAPTCHA present but CAPTCHA_API_KEY not configured" };
-      }
       // Screenshot the captcha image element specifically if possible
       let imgBase64: string | null = null;
       try {
@@ -175,7 +171,7 @@ export async function executePlaywrightFallback(
       }
       if (imgBase64) {
         try {
-          const code = await solveCaptcha(imgBase64, opts.captchaApiKey);
+          const code = await solveCaptcha(imgBase64);
           await fill('input#CaptchaText, input[name="CaptchaText"]', code);
         } catch (e: any) {
           const dur = (Date.now() - startTime) / 1000.0;
