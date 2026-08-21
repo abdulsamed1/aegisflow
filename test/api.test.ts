@@ -156,7 +156,7 @@ const FULL_PAYLOAD = {
   city: "Cairo",
   passportIssueDate: "2018-06-15",
   passportIssuingCountry: "Egypt",
-  category: "Master_PhD",
+  category: "Bachelor",
   passportNumber: "A98765432",
   passportExpiry: "2031-12-31",
   dob: "1997-03-21",
@@ -215,8 +215,8 @@ test("API Endpoint: POST /api/clients creates encrypted client & candidate job",
 
   const stored = env.__stores.clients[0];
   assert.ok(stored, "Mock store must hold the inserted row");
-  assert.strictEqual(stored.category, "Master_PhD", "Category must land in its column position");
-  assert.strictEqual(stored.calendar_id, 44279679, "calendar_id must land in its column position");
+  assert.strictEqual(stored.category, "Bachelor", "Category must land in its column position");
+  assert.strictEqual(stored.calendar_id, 44281520, "calendar_id must land in its column position");
   assert.strictEqual(stored.place_of_birth, "Cairo", "Plaintext-class field must land in its column position");
   assert.notStrictEqual(stored.family_name_at_birth_enc, "Farouk", "Encrypted-class field must be ciphertext");
   assert.strictEqual(stored.passport_issuing_country, "Egypt", "Passport issuing country must land in its column position");
@@ -626,7 +626,7 @@ test("API Endpoint: POST /api/clients validates each of the 17 required fields i
 });
 
 test("API Endpoint: POST /api/clients applies defaults and maps calendarId correctly", async () => {
-  // Test Category = "Bachelor" -> calendarId = 44281520
+  // Test Category = "Bachelor" with omitted gender -> defaults to Male, calendarId = 44281520
   const env1 = createMockEnv();
   const payloadBachelor = { ...FULL_PAYLOAD, category: "Bachelor" };
   delete (payloadBachelor as any).gender;
@@ -646,21 +646,21 @@ test("API Endpoint: POST /api/clients applies defaults and maps calendarId corre
   assert.strictEqual(stored1.gender, "Male", "Omitted gender must default to Male");
   assert.strictEqual(stored1.nationality, "Egyptian", "Explicit nationality must be stored as-is");
 
-  // Test Category = "Master_PhD" -> calendarId = 44279679
+  // Test Category = "Bachelor" with explicit Female gender and Austrian nationality
   const env2 = createMockEnv();
-  const payloadMaster = { ...FULL_PAYLOAD, category: "Master_PhD", gender: "Female", nationality: "Austrian" };
+  const payloadExplicit = { ...FULL_PAYLOAD, category: "Bachelor", gender: "Female", nationality: "Austrian" };
   const res2 = await worker.fetch(
     new Request("https://opran-booking.local/api/clients", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payloadMaster)
+      body: JSON.stringify(payloadExplicit)
     }),
     env2, {} as any
   );
   assert.strictEqual(res2.status, 201);
   const stored2 = env2.__stores.clients[0];
-  assert.strictEqual(stored2.category, "Master_PhD");
-  assert.strictEqual(stored2.calendar_id, 44279679);
+  assert.strictEqual(stored2.category, "Bachelor");
+  assert.strictEqual(stored2.calendar_id, 44281520);
   assert.strictEqual(stored2.gender, "Female");
   assert.strictEqual(stored2.nationality, "Austrian");
 });
@@ -952,7 +952,19 @@ test("API Endpoint: POST & PUT /api/clients reject invalid category with 400 Bad
   );
   assert.strictEqual(resPost.status, 400);
   const postErr = (await resPost.json() as any).error;
-  assert.strictEqual(postErr, "Invalid category. Must be 'Bachelor' or 'Master_PhD'");
+  assert.strictEqual(postErr, "Invalid category. Must be 'Bachelor'");
+
+  // POST with Master_PhD (rejected in Bachelor-only MVP)
+  const resPostMaster = await worker.fetch(
+    new Request("https://opran-booking.local/api/clients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...FULL_PAYLOAD, category: "Master_PhD" })
+    }),
+    env, {} as any
+  );
+  assert.strictEqual(resPostMaster.status, 400);
+  assert.strictEqual((await resPostMaster.json() as any).error, "Invalid category. Must be 'Bachelor'");
 
   // Create valid client
   const created = await (await worker.fetch(
@@ -975,7 +987,19 @@ test("API Endpoint: POST & PUT /api/clients reject invalid category with 400 Bad
   );
   assert.strictEqual(resPut.status, 400);
   const putErr = (await resPut.json() as any).error;
-  assert.strictEqual(putErr, "Invalid category. Must be 'Bachelor' or 'Master_PhD'");
+  assert.strictEqual(putErr, "Invalid category. Must be 'Bachelor'");
+
+  // PUT with Master_PhD (rejected in Bachelor-only MVP)
+  const resPutMaster = await worker.fetch(
+    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...FULL_PAYLOAD, category: "Master_PhD" })
+    }),
+    env, {} as any
+  );
+  assert.strictEqual(resPutMaster.status, 400);
+  assert.strictEqual((await resPutMaster.json() as any).error, "Invalid category. Must be 'Bachelor'");
 });
 
 test("Booking Engine Utility: formatDateForPortal converts YYYY-MM-DD to MM/DD/YYYY format", async () => {
