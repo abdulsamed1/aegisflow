@@ -37,10 +37,10 @@
 - Before executing a booking attempt (`BOOKING` state), the Worker must acquire the DO lock.
 - Once a job reaches `BOOKED` state, the DO lock permanently seals the job, preventing any further checks or duplicate bookings.
 
-## FR-7: Booking Engine (Direct HTTP & Playwright Fallback)
-- **The portal booking path is Verified** (`docs/portal-automation-spec.md`). The engine (`executeDirectHttpBooking`) navigates Language Selection, Slot Selection, and serializes the 18 PII fields into the expected `Step3` payload format.
-- **Autonomous Submission**: `executeDirectHttpBooking` posts the payload via ultra-low latency HTTP POST (~200ms) and extracts the booking confirmation reference (`GESX-...`).
-- **Playwright Fallback**: If direct HTTP submission encounters layout shifts or requires browser interaction, `executePlaywrightFallback` executes DOM form filling and submission in `@cloudflare/playwright`.
+## FR-7: Booking Engine (Playwright Wizard — Direct HTTP Retired)
+- **Verified path is Playwright only** (`docs/portal-automation-spec.md §6` revised 2026-08-21, London evidence). `executePlaywrightFallback` navigates Office→CalendarId→PersonCount→Info→Week grid radios→Slot→Personal data (31 real names `Lastname/Firstname/DateOfBirth/TraveldocumentNumber/Sex/Postcode/Telephone/DSGVOAccepted` + `BDC_*/CaptchaText` + `Token/StartTime`) and extracts `GESX-...`; success only with reference. The `~200ms` figure in prior revisions applied only to the scanner POST (`FR-5`), not booking — wizard is ~35-50s including open-source OCR (tesseract.js) and 20s throttle (NFR-2).
+- **Autonomous Submission**: Playwright wizard submits via `@cloudflare/playwright`, solves CAPTCHA locally via `src/captcha.ts` (tesseract.js, Apache 2.0, no API key, 1-2s vs 2captcha 10-60s poll), and parses `GESX-...`.
+- **Direct HTTP `executeDirectHttpBooking` is dead for live booking** — retained only for unit-test payload helpers (`buildStep3DetailsPayload` correct names) and not called from `src/index.ts scheduled()` (verified 2026-08-21). Do not reintroduce as primary without re-verifying portal `Token/BDC_*` handling.
 
 ## FR-8: Audit Logging & Metrics
 - All events shall be logged to D1 table `audit_logs` with the canonical event set from the brief section 17:
