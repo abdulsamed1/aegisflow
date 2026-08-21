@@ -17,6 +17,7 @@ export interface Env {
   JOB_LOCK: DurableObjectNamespace;
   SESSION_KV: KVNamespace;
   MYBROWSER: any;
+  AI?: any;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
   PII_ENCRYPTION_KEY?: string;
@@ -711,6 +712,7 @@ export default {
       let pwRes = await executePlaywrightFallback(env.MYBROWSER, decryptedClient, {
         startTime: slotMonday,
         captchaApiKey: env.CAPTCHA_API_KEY,
+        ai: env.AI,
       });
 
       let totalBrowserSeconds = pwRes.durationSeconds;
@@ -760,6 +762,7 @@ export default {
         const pwRes2 = await executePlaywrightFallback(env.MYBROWSER, decryptedClient, {
           startTime: slotMonday,
           captchaApiKey: env.CAPTCHA_API_KEY,
+          ai: env.AI,
         });
         totalBrowserSeconds += pwRes2.durationSeconds;
         bgTasks.push(env.DB.prepare(

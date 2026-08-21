@@ -20,7 +20,7 @@ async function throttleLaunch(): Promise<void> {
 export async function executePlaywrightFallback(
   browserBinding: any,
   client: DecryptedClientData,
-  opts?: { startTime?: string; captchaApiKey?: string }
+  opts?: { startTime?: string; captchaApiKey?: string; ai?: any }
 ): Promise<BrowserFallbackResult> {
   const startTime = Date.now();
   let browser: any = null;
@@ -158,6 +158,13 @@ export async function executePlaywrightFallback(
     // ponytail: open-source local OCR (tesseract.js) — no API key, no polling, free per D3
     const captchaImg = await page.$('#Captcha_CaptchaImage, img[id*="Captcha"]');
     if (captchaImg) {
+      // @ts-ignore — runs in browser context, document available there
+      await page.waitForFunction(() => {
+        // @ts-ignore
+        const img = document.querySelector('#Captcha_CaptchaImage') as HTMLImageElement;
+        return img && img.complete && img.naturalWidth > 0;
+      }).catch(() => null);
+
       // Screenshot the captcha image element specifically if possible
       let imgBase64: string | null = null;
       try {
@@ -171,7 +178,7 @@ export async function executePlaywrightFallback(
       }
       if (imgBase64) {
         try {
-          const code = await solveCaptcha(imgBase64);
+          const code = await solveCaptcha(imgBase64, opts?.ai);
           await fill('input#CaptchaText, input[name="CaptchaText"]', code);
         } catch (e: any) {
           const dur = (Date.now() - startTime) / 1000.0;
@@ -181,8 +188,8 @@ export async function executePlaywrightFallback(
       }
     }
 
-    // ponytail: portal final-submit uses Command=Save (not Next). Prefer Save to avoid clicking a wizard-navigation button.
-    const submitBtn = await page.$('input[value="Save"], input[name="Command"][value="Save"], button[type="submit"], input[type="submit"]');
+    // ponytail: portal Step 6 submit button is input#nextButton (value="Next" or "Save"). Avoid generic input[type="submit"] which hits "Back".
+    const submitBtn = await page.$('input#nextButton, input[name="Command"][value="Next"], input[name="Command"][value="Save"], input[value="Save"], button[type="submit"]');
     if (submitBtn) {
       await Promise.all([
         page.waitForLoadState('domcontentloaded', { timeout: 20000 }).catch(() => null),

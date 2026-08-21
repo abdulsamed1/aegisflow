@@ -37,6 +37,10 @@ id = "YOUR_KV_NAMESPACE_ID"
 [browser]
 binding = "MYBROWSER"
 
+# Cloudflare Workers AI Binding — open-source LLaVA vision model for CAPTCHA solving
+[ai]
+binding = "AI"
+
 # Cron Trigger (Runs every minute; Cairo time conversion handled in worker)
 [triggers]
 crons = ["* * * * *"]

@@ -10,5 +10,5 @@ dist/
 *.env
 *env.d.ts
 *.log
-opran-booking/screenshots/
 .tmp-bundle/
+scratch/
