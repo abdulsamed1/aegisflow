@@ -3,6 +3,8 @@
  * Conforms to Architectural Invariant AD-7 & Cairo Operating Window
  */
 
+import { CANONICAL_CALENDAR_ID } from "./pre-submit-gate";
+
 export interface CairoTimeInfo {
   isWithinWindow: boolean;
   dayOfWeek: string;
@@ -71,7 +73,7 @@ export const SCHEDULER_PICK_QUERY = `
   JOIN clients ON jobs.client_id = clients.id
   WHERE jobs.enabled = 1
     AND jobs.status = 'ACTIVE'
-    AND clients.calendar_id = 44281520
+    AND clients.calendar_id = ${CANONICAL_CALENDAR_ID}
     AND (jobs.backoff_until IS NULL OR jobs.backoff_until <= CURRENT_TIMESTAMP)
   ORDER BY jobs.last_check ASC
   LIMIT 3`;
