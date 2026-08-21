@@ -315,7 +315,7 @@ test("Integration: stale lock (crashed execution) expires and allows takeover af
   rmSync(persistDir, { recursive: true, force: true });
 });
 
-test("Integration: PUT /api/clients/:id round-trips updates, recomputes calendar, keeps passport on empty", async () => {
+test("Integration: PUT /api/clients/:id round-trips updates, keeps passport on empty", async () => {
   const mf = await startWorker();
 
   const createRes = await mf.dispatchFetch("https://opran.local/api/clients", {

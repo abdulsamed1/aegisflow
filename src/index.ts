@@ -8,7 +8,7 @@ import { DecryptedClientData } from "./booking-http";
 import { executePlaywrightFallback } from "./browser-fallback";
 import { isCircuitBreakerTripped, getBackoffUntilISO } from "./backoff";
 import { decideReverifyAction, decideRetryAction } from "./booking-flow";
-import { checkPreSubmitGate } from "./pre-submit-gate";
+import { checkPreSubmitGate, CANONICAL_CALENDAR_ID } from "./pre-submit-gate";
 
 export { JobLockDO };
 
@@ -267,7 +267,7 @@ export default {
         const emailEnc = await encryptPII(body.email, secret);
         const phoneEnc = await encryptPII(body.phone, secret);
 
-        const calendarId = 44281520;
+        const calendarId = CANONICAL_CALENDAR_ID;
 
         await env.DB.prepare(
           `INSERT INTO clients (id, first_name_enc, last_name_enc, gender, dob, nationality, passport_number_enc, passport_expiry, email_enc, phone_enc, family_name_at_birth_enc, place_of_birth, country_of_birth, nationality_at_birth, address_street_enc, address_postal_code_enc, address_city_enc, passport_issue_date, passport_issuing_country, category, calendar_id)
@@ -376,7 +376,7 @@ export default {
           passportEnc = await encryptPII(body.passportNumber, secret);
         }
 
-        const calendarId = 44281520;
+        const calendarId = CANONICAL_CALENDAR_ID;
 
         await env.DB.prepare(
           `UPDATE clients SET first_name_enc = ?, last_name_enc = ?, gender = ?, dob = ?, nationality = ?,
