@@ -10,9 +10,9 @@ export interface GateResult {
   blockers: string[];
 }
 
-const KNOWN_CALENDAR_IDS = [44281520, 44279679] as const;
+const KNOWN_CALENDAR_IDS = [44281520] as const;
 const VALID_GENDERS = ["Male", "Female"] as const;
-const VALID_CATEGORIES = ["Bachelor", "Master_PhD"] as const;
+const VALID_CATEGORIES = ["Bachelor"] as const;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
@@ -55,7 +55,7 @@ export function checkPreSubmitGate(client: DecryptedClientData): GateResult {
     blockers.push(`Invalid gender: "${client.gender}" — must be Male or Female (portal: Sex)`);
   }
   if (!(VALID_CATEGORIES as readonly string[]).includes(client.category)) {
-    blockers.push(`Invalid category: "${client.category}" — must be Bachelor or Master_PhD`);
+    blockers.push(`Invalid category: "${client.category}" — must be Bachelor`);
   }
 
   // CalendarId must be a known verified value
