@@ -32,6 +32,27 @@ function secretErrorResponse(): Response {
   });
 }
 
+// ponytail: session cookie holds a keyed hash of ADMIN_API_KEY, never the raw key — cookie leak ≠ key leak
+async function sessionToken(adminKey: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`opran-session-v1|${adminKey}`)
+  );
+  return btoa(String.fromCharCode(...new Uint8Array(digest)));
+}
+
+// constant-time comparison — kills timing side-channel on secret compare
+// ponytail: manual XOR loop — Node lacks crypto.subtle.timingSafeEqual, one portable impl
+function safeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const ba = enc.encode(a);
+  const bb = enc.encode(b);
+  if (ba.length !== bb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ba.length; i++) diff |= ba[i] ^ bb[i];
+  return diff === 0;
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -41,7 +62,8 @@ export default {
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type"
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Cache-Control": "no-store"
     };
 
     if (request.method === "OPTIONS") {
@@ -57,38 +79,37 @@ export default {
          });
       }
 
-      if (env.ADMIN_API_KEY) {
-        let isAuthenticated = false;
-        
-        // Check 1: Authorization Header (Bearer or Basic)
-        const authHeader = request.headers.get("Authorization");
-        if (authHeader) {
-          if (authHeader.startsWith("Bearer ") && authHeader.substring(7) === env.ADMIN_API_KEY) {
-            isAuthenticated = true;
-          } else if (authHeader.startsWith("Basic ")) {
-            try {
-              const b64 = authHeader.substring(6);
-              const decoded = atob(b64);
-              const [_, pass] = decoded.split(":");
-              if (pass === env.ADMIN_API_KEY) isAuthenticated = true;
-            } catch (e) {}
-          }
-        }
-        
-        // Check 2: X-API-Key Header
-        if (!isAuthenticated && request.headers.get("X-API-Key") === env.ADMIN_API_KEY) {
-          isAuthenticated = true;
-        }
+      // ponytail: no custom rate limiter — Access edge (layer 1) + 256-bit key entropy cover brute force
+      let cookieToSet: string | null = null;
 
-        // Check 3: Query Parameter & Cookie
-        const tokenQuery = url.searchParams.get("token");
-        const cookieHeader = request.headers.get("Cookie") || "";
-        const cookieMatch = cookieHeader.match(/opran_admin_token=([^;]+)/);
+      if (env.ADMIN_API_KEY) {
+        const key = env.ADMIN_API_KEY;
+        const expectedSession = await sessionToken(key);
+        const cookieMatch = (request.headers.get("Cookie") || "").match(/(?:^|;\s*)__Host-opran_admin_token=([^;]+)/);
         const cookieToken = cookieMatch ? cookieMatch[1] : null;
 
+        let isAuthenticated = cookieToken !== null && safeEqual(cookieToken, expectedSession);
+        let viaHeader = false;
+
+        // Bearer or Basic (password = key, username ignored)
+        const authHeader = request.headers.get("Authorization");
+        if (!isAuthenticated && authHeader) {
+          if (authHeader.startsWith("Bearer ")) {
+            isAuthenticated = safeEqual(authHeader.substring(7), key);
+          } else if (authHeader.startsWith("Basic ")) {
+            try {
+              const [_, pass] = atob(authHeader.substring(6)).split(":");
+              isAuthenticated = safeEqual(pass, key);
+            } catch (e) {}
+          }
+          if (isAuthenticated) viaHeader = true;
+        }
+
         if (!isAuthenticated) {
-          if (tokenQuery === env.ADMIN_API_KEY || cookieToken === env.ADMIN_API_KEY) {
-             isAuthenticated = true;
+          const apiKey = request.headers.get("X-API-Key");
+          if (apiKey && safeEqual(apiKey, key)) {
+            isAuthenticated = true;
+            viaHeader = true;
           }
         }
 
@@ -97,9 +118,9 @@ export default {
           if (request.method === "GET" && path === "/") {
             return new Response("Unauthorized", {
               status: 401,
-              headers: { 
+              headers: {
                 "WWW-Authenticate": 'Basic realm="Opran Booking Admin"',
-                "Content-Type": "text/plain" 
+                "Content-Type": "text/plain"
               }
             });
           }
@@ -108,17 +129,10 @@ export default {
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         }
-        
-        // If authenticated via token query on dashboard, set cookie and redirect to remove token from URL
-        if (path === "/" && tokenQuery === env.ADMIN_API_KEY) {
-           return new Response("Redirecting...", {
-             status: 302,
-             headers: {
-               "Location": "/",
-               "Set-Cookie": `opran_admin_token=${env.ADMIN_API_KEY}; HttpOnly; Path=/; Max-Age=86400; SameSite=Strict`,
-               ...corsHeaders
-             }
-           });
+
+        // ponytail: browser logged in via header → upgrade to session cookie so the panel's fetch() is authenticated
+        if (viaHeader) {
+          cookieToSet = `__Host-opran_admin_token=${expectedSession}; HttpOnly; Secure; Path=/; Max-Age=86400; SameSite=Strict`;
         }
       }
       // --- End Authentication Middleware ---
@@ -456,9 +470,26 @@ export default {
         });
       }
 
+      // Logout: clears the session cookie (full revocation = rotating ADMIN_API_KEY)
+      if (path === "/logout" && request.method === "POST") {
+        return new Response(JSON.stringify({ success: true }), {
+          headers: {
+            "Content-Type": "application/json",
+            "Set-Cookie": "__Host-opran_admin_token=; HttpOnly; Secure; Path=/; Max-Age=0; SameSite=Strict"
+          }
+        });
+      }
+
       // Serve Single Operator Admin Panel HTML Dashboard
       return new Response(getAdminHTML(), {
-        headers: { "Content-Type": "text/html; charset=utf-8" }
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+          "Referrer-Policy": "no-referrer",
+          "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'",
+          ...(cookieToSet ? { "Set-Cookie": cookieToSet } : {})
+        }
       });
     } catch (err: any) {
       return new Response(JSON.stringify({ error: err.message }), {
