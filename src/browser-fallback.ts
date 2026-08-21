@@ -181,8 +181,8 @@ export async function executePlaywrightFallback(
       }
     }
 
-    // Submit
-    const submitBtn = await page.$('input[value="Next"], input[value="Save"], button[type="submit"], input[type="submit"]');
+    // ponytail: portal final-submit uses Command=Save (not Next). Prefer Save to avoid clicking a wizard-navigation button.
+    const submitBtn = await page.$('input[value="Save"], input[name="Command"][value="Save"], button[type="submit"], input[type="submit"]');
     if (submitBtn) {
       await Promise.all([
         page.waitForLoadState('domcontentloaded', { timeout: 20000 }).catch(() => null),

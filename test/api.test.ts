@@ -150,6 +150,7 @@ const FULL_PAYLOAD = {
   placeOfBirth: "Cairo",
   countryOfBirth: "Egypt",
   nationalityAtBirth: "Egyptian",
+  nationality: "Egyptian",
   street: "15 Tahrir Square",
   postalCode: "11511",
   city: "Cairo",
@@ -629,7 +630,6 @@ test("API Endpoint: POST /api/clients applies defaults and maps calendarId corre
   const env1 = createMockEnv();
   const payloadBachelor = { ...FULL_PAYLOAD, category: "Bachelor" };
   delete (payloadBachelor as any).gender;
-  delete (payloadBachelor as any).nationality;
 
   const res1 = await worker.fetch(
     new Request("https://opran-booking.local/api/clients", {
@@ -644,7 +644,7 @@ test("API Endpoint: POST /api/clients applies defaults and maps calendarId corre
   assert.strictEqual(stored1.category, "Bachelor");
   assert.strictEqual(stored1.calendar_id, 44281520);
   assert.strictEqual(stored1.gender, "Male", "Omitted gender must default to Male");
-  assert.strictEqual(stored1.nationality, "Egyptian", "Omitted nationality must default to Egyptian");
+  assert.strictEqual(stored1.nationality, "Egyptian", "Explicit nationality must be stored as-is");
 
   // Test Category = "Master_PhD" -> calendarId = 44279679
   const env2 = createMockEnv();
@@ -1108,3 +1108,134 @@ test("API Security: Authenticated request via Basic Auth", async () => {
   assert.strictEqual(res.status, 200);
 });
 
+test("API Validation: POST /api/clients rejects missing nationality field with 400", async () => {
+  const env = createMockEnv();
+  const { nationality, ...withoutNationality } = FULL_PAYLOAD;
+  const res = await worker.fetch(
+    new Request("https://opran-booking.local/api/clients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(withoutNationality)
+    }), env, {} as any);
+  assert.strictEqual(res.status, 400);
+  const body = await res.json() as any;
+  assert.ok(body.error.includes("nationality"), `Error should mention nationality: ${body.error}`);
+});
+
+test("Pre-Submit Gate: blocks on missing required field", async () => {
+  const { checkPreSubmitGate } = await import("../src/pre-submit-gate");
+  const incomplete: any = {
+    id: "test", firstName: "Ahmed", lastName: "", familyNameAtBirth: "Hassan",
+    placeOfBirth: "Cairo", countryOfBirth: "Egypt", nationalityAtBirth: "Egyptian",
+    street: "15 Tahrir", postalCode: "11511", city: "Cairo",
+    passportIssueDate: "2018-06-15", passportIssuingCountry: "Egypt",
+    gender: "Male", dob: "1997-03-21", nationality: "Egyptian",
+    passportNumber: "A12345678", passportExpiry: "2030-01-01",
+    email: "test@test.com", phone: "+201000000000",
+    category: "Bachelor", calendarId: 44281520
+  };
+  const result = checkPreSubmitGate(incomplete);
+  assert.strictEqual(result.ready, false);
+  assert.ok(result.blockers.some(b => b.includes("lastName")));
+});
+
+test("Pre-Submit Gate: passes on complete valid data", async () => {
+  const { checkPreSubmitGate } = await import("../src/pre-submit-gate");
+  const complete: any = {
+    id: "test", firstName: "Ahmed", lastName: "Hassan", familyNameAtBirth: "Hassan",
+    placeOfBirth: "Cairo", countryOfBirth: "Egypt", nationalityAtBirth: "Egyptian",
+    street: "15 Tahrir", postalCode: "11511", city: "Cairo",
+    passportIssueDate: "2018-06-15", passportIssuingCountry: "Egypt",
+    gender: "Male", dob: "1997-03-21", nationality: "Egyptian",
+    passportNumber: "A12345678", passportExpiry: "2030-01-01",
+    email: "test@test.com", phone: "+201000000000",
+    category: "Bachelor", calendarId: 44281520
+  };
+  const result = checkPreSubmitGate(complete);
+  assert.strictEqual(result.ready, true);
+  assert.strictEqual(result.blockers.length, 0);
+});
+
+test("Pre-Submit Gate: blocks on unknown calendarId", async () => {
+  const { checkPreSubmitGate } = await import("../src/pre-submit-gate");
+  const badCalendar: any = {
+    id: "test", firstName: "Ahmed", lastName: "Hassan", familyNameAtBirth: "Hassan",
+    placeOfBirth: "Cairo", countryOfBirth: "Egypt", nationalityAtBirth: "Egyptian",
+    street: "15 Tahrir", postalCode: "11511", city: "Cairo",
+    passportIssueDate: "2018-06-15", passportIssuingCountry: "Egypt",
+    gender: "Male", dob: "1997-03-21", nationality: "Egyptian",
+    passportNumber: "A12345678", passportExpiry: "2030-01-01",
+    email: "test@test.com", phone: "+201000000000",
+    category: "Bachelor", calendarId: 99999
+  };
+  const result = checkPreSubmitGate(badCalendar);
+  assert.strictEqual(result.ready, false);
+  assert.ok(result.blockers.some(b => b.includes("calendarId")));
+});
+
+test("Pre-Submit Gate: blocks on invalid date format", async () => {
+  const { checkPreSubmitGate } = await import("../src/pre-submit-gate");
+  const badDate: any = {
+    id: "test", firstName: "Ahmed", lastName: "Hassan", familyNameAtBirth: "Hassan",
+    placeOfBirth: "Cairo", countryOfBirth: "Egypt", nationalityAtBirth: "Egyptian",
+    street: "15 Tahrir", postalCode: "11511", city: "Cairo",
+    passportIssueDate: "15/06/2018", passportIssuingCountry: "Egypt",
+    gender: "Male", dob: "1997-03-21", nationality: "Egyptian",
+    passportNumber: "A12345678", passportExpiry: "2030-01-01",
+    email: "test@test.com", phone: "+201000000000",
+    category: "Bachelor", calendarId: 44281520
+  };
+  const result = checkPreSubmitGate(badDate);
+  assert.strictEqual(result.ready, false);
+  assert.ok(result.blockers.some(b => b.includes("passportIssueDate")));
+});
+
+test("Portal Field Names: buildStep3DetailsPayload uses exact verified portal names (regression)", async () => {
+  const { buildStep3DetailsPayload } = await import("../src/booking-http");
+  const client: any = {
+    id: "test", firstName: "Ahmed", lastName: "Hassan", familyNameAtBirth: "Hassan",
+    placeOfBirth: "Cairo", countryOfBirth: "Egypt", nationalityAtBirth: "Egyptian",
+    street: "15 Tahrir", postalCode: "11511", city: "Cairo",
+    passportIssueDate: "2018-06-15", passportIssuingCountry: "Egypt",
+    gender: "Male", dob: "1997-03-21", nationality: "Egyptian",
+    passportNumber: "A12345678", passportExpiry: "2030-01-01",
+    email: "test@test.com", phone: "+201000000000",
+    category: "Bachelor", calendarId: 44281520
+  };
+  const payload = buildStep3DetailsPayload(client, "TEST");
+  const params = new URLSearchParams(payload);
+  
+  // Verified portal field names — must be exact case-sensitive match
+  const verifiedNames = [
+    "Lastname", "Firstname", "DateOfBirth", "TraveldocumentNumber", "Sex",
+    "Street", "Postcode", "City", "Country", "Telephone", "Email",
+    "LastnameAtBirth", "NationalityAtBirth", "CountryOfBirth", "PlaceOfBirth",
+    "NationalityForApplication", "TraveldocumentDateOfIssue",
+    "TraveldocumentValidUntil", "TraveldocumentIssuingAuthority",
+    "DSGVOAccepted", "CaptchaText", "Command"
+  ];
+  for (const name of verifiedNames) {
+    assert.ok(params.has(name), `Portal field "${name}" must be present in payload`);
+  }
+  
+  // Regression: these FABRICATED names must NOT appear
+  const fabricated = ["LastName", "FirstName", "DOB", "PassportNumber", "Gender", "PostalCode", "Phone"];
+  for (const name of fabricated) {
+    assert.ok(!params.has(name), `Fabricated field "${name}" must NOT appear in payload`);
+  }
+});
+
+test("Panel Field Completeness: admin HTML contains all 19 static client input fields", async () => {
+  const env = createMockEnv();
+  const res = await worker.fetch(new Request("https://opran-booking.local/"), env, {} as any);
+  const html = await res.text();
+  const requiredInputIds = [
+    "firstName", "lastName", "familyNameAtBirth", "placeOfBirth", "countryOfBirth",
+    "nationalityAtBirth", "nationality", "street", "postalCode", "city",
+    "passportNumber", "passportExpiry", "passportIssueDate", "passportIssuingCountry",
+    "dob", "gender", "email", "phone", "category"
+  ];
+  for (const id of requiredInputIds) {
+    assert.ok(html.includes(`id="${id}"`), `Admin form must contain input with id="${id}"`);
+  }
+});
