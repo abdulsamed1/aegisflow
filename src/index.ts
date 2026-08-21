@@ -1,5 +1,6 @@
 import { scanAvailability, getSessionCookie } from "./scanner";
-import { getCairoTimeInfo, rollingMondays, SCHEDULER_PICK_QUERY } from "./scheduler";
+import { getCairoTimeInfo, getCairoDateString, rollingMondays, SCHEDULER_PICK_QUERY } from "./scheduler";
+import { aggregateDailyReport, filterRowsByCairoDay } from "./daily-report";
 import { sendTelegramNotification } from "./telegram";
 import { JobLockDO } from "./lock";
 import { encryptPII, decryptPII, maskPassport } from "./crypto";
@@ -483,6 +484,25 @@ export default {
         return new Response(JSON.stringify({ success: true, action, jobId }), {
           headers: { "Content-Type": "application/json", ...corsHeaders }
         });
+      }
+
+      // API: Daily report — ponytail: minimal Cairo-bucketed dedup
+      if (path === "/api/daily-report" && request.method === "GET") {
+        const dateParam = url.searchParams.get("date");
+        let cairoDay = getCairoDateString(new Date());
+        if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+          const d = new Date(dateParam + "T12:00:00Z");
+          if (!Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === dateParam) cairoDay = dateParam;
+        }
+        const { results } = await env.DB.prepare("SELECT job_id, client_id, event_type, details, created_at FROM audit_logs WHERE created_at >= datetime('now', '-8 days') ORDER BY created_at ASC").all<any>();
+        const cairoRows = filterRowsByCairoDay(results || [], cairoDay);
+        const agg = aggregateDailyReport(cairoRows as any, cairoDay);
+        return new Response(JSON.stringify({
+          ...agg,
+          limitation: "distinct per-slot count NOT derivable — scanner only reports grid non-empty (week granularity, see AD-4/G0 §5). Counting by job+week dedup; slot times within grid are not parsed. KAIRO SLOTS grid markup still UNVERIFIED (11.md #1/#5).",
+          definition: "missed = APPOINTMENT_FOUND deduped by job+week on this Cairo day that later emitted SLOT_GONE_PRE_LAUNCH or BOOKING_FAILED without a BOOKED for same job+week (definition B).",
+          timezone: "Africa/Cairo bucketing via getCairoDateString; audit_logs.created_at is UTC CURRENT_TIMESTAMP."
+        }), { headers: { "Content-Type": "application/json", ...corsHeaders } });
       }
 
       // API: Fetch Audit Logs
@@ -1030,8 +1050,19 @@ function getAdminHTML(): string {
       .form-grid { grid-template-columns: 1fr; }
       .row-actions { flex-wrap: wrap; }
     }
+    /* ---- premium upgrades — dossiers, not dashboards ---- */
+    html { scroll-behavior: smooth; }
+    .metric-card { transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease; }
+    .metric-card:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(35,32,26,0.07); border-color: var(--border-strong); }
+    .table-card { box-shadow: 0 1px 0 rgba(35,32,26,0.04); }
+    #daily-report-card { position: relative; overflow: hidden; }
+    #daily-report-card::before { content:""; position:absolute; inset:0 0 auto 0; height:3px; background: linear-gradient(90deg, var(--primary), #d98a5c 60%, var(--border-strong)); opacity:0.9; }
+    .table-header h2 { text-wrap: balance; letter-spacing: -0.02em; }
     @media (max-width: 480px) {
       .grid-metrics { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 640px) {
+      #daily-report-card > div:nth-child(2) > div:nth-child(2) { grid-template-columns: 1fr !important; }
     }
   </style>
 </head>
@@ -1055,6 +1086,44 @@ function getAdminHTML(): string {
         <div class="metric-val mono" style="color: var(--success);" id="val-booked">0</div>
       </div>
     </div>
+
+    <!-- Daily Report — Paper Dossier: Cairo-day dedup, Arabic-first disclosure -->
+    <section class="table-card" id="daily-report-card" aria-labelledby="daily-report-title">
+      <div class="table-header" style="flex-wrap:wrap; gap:12px;">
+        <h2 id="daily-report-title">التقرير اليومي — المواعيد المرصودة</h2>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <label for="report-date" style="font-size:12px; font-weight:700; color:var(--text-muted);">اليوم (القاهرة)</label>
+          <input id="report-date" class="form-control" type="date" style="width:auto; min-width:170px;" aria-label="اختر يوم التقرير بتوقيت القاهرة">
+          <button class="btn btn-outline-light btn-sm" id="report-reload" type="button" onclick="loadDailyReport()">تحديث</button>
+          <span class="livetag" style="margin-inline-start:4px;"><span class="dot" style="background:var(--success);"></span> Africa/Cairo</span>
+        </div>
+      </div>
+      <div style="padding:18px 22px; background:var(--bg-card);">
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:14px;">
+          <div class="metric-card" style="padding:16px 14px; display:flex; flex-direction:column; gap:8px;">
+            <div class="metric-label">حالة اليوم</div>
+            <div id="rep-was-open" style="display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:800; min-height:28px;" aria-live="polite">—</div>
+            <div style="font-size:11px; color:var(--text-dim); line-height:1.4;">هل رُصدت أي شبكة أسبوع بها مواعيد؟</div>
+          </div>
+          <div class="metric-card" style="padding:16px 14px;">
+            <div class="metric-label">أسابيع بها مواعيد <span title="فرص مميزة: كل مهمة+أسبوع تُحسب مرة واحدة في اليوم مهما تكرر الفحص" style="cursor:help; border-bottom:1px dotted var(--border-strong);">ⓘ</span></div>
+            <div class="metric-val mono" id="rep-found">—</div>
+            <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">مميزة في اليوم</div>
+          </div>
+          <div class="metric-card" style="padding:16px 14px;">
+            <div class="metric-label">تم حجزها</div>
+            <div class="metric-val mono" style="color:var(--success);" id="rep-booked">—</div>
+            <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">تحولت إلى حجز</div>
+          </div>
+          <div class="metric-card" style="padding:16px 14px;">
+            <div class="metric-label">فرص ضائعة</div>
+            <div class="metric-val mono" style="color:var(--danger);" id="rep-missed">—</div>
+            <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">فُقدت بعد الرصد</div>
+          </div>
+        </div>
+        <div id="rep-missed-details" role="status" aria-live="polite" style="font-size:13px; color:var(--text-muted); min-height:22px;"></div>
+      </div>
+    </section>
 
     <div class="table-card">
       <div class="table-header">
@@ -1341,7 +1410,49 @@ function getAdminHTML(): string {
         console.error('Failed to load dashboard:', err);
       }
     }
+    async function loadDailyReport(dateOverride) {
+      const input = document.getElementById('report-date');
+      // ponytail: default to Cairo today via Intl en-CA, no dep
+      const cairoToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Cairo' });
+      const date = dateOverride || (input && input.value) || cairoToday;
+      if (input && !input.value) input.value = date;
+      const elWas = document.getElementById('rep-was-open');
+      const elFound = document.getElementById('rep-found');
+      const elBooked = document.getElementById('rep-booked');
+      const elMissed = document.getElementById('rep-missed');
+      const elDetails = document.getElementById('rep-missed-details');
+      if (!elWas) return;
+      elWas.innerHTML = '<span class="skeleton" style="display:inline-block; width:110px; height:20px;"></span>';
+      elFound.textContent = '…'; elBooked.textContent = '…'; elMissed.textContent = '…';
+      elDetails.textContent = '';
+      try {
+        const res = await fetch('/api/daily-report?date=' + encodeURIComponent(date));
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const d = await res.json();
+        elWas.innerHTML = d.was_open
+          ? '<span class="status-pill status-active">مفتوحة — رُصدت مواعيد ✓</span>'
+          : '<span class="status-pill status-paused">مغلقة — لا مواعيد</span>';
+        elFound.textContent = String(d.opportunities_found ?? 0);
+        elBooked.textContent = String(d.opportunities_booked ?? 0);
+        elMissed.textContent = String(d.opportunities_missed ?? 0);
+        if (d.missed_details && d.missed_details.length) {
+          elDetails.innerHTML = '<span style="font-weight:700; color:var(--text);">الفرص الضائعة:</span> ' + d.missed_details.map(function(m){
+            var w = (m.week||'?').replace(' 12:00:00 AM','');
+            return '<span style="display:inline-flex; align-items:center; gap:6px; margin:4px 6px 0 0; padding:4px 10px; background:var(--danger-bg); border:1px solid rgba(192,57,43,0.22); border-radius:999px; font-size:11.5px;"><span class="mono" style="direction:ltr;">' + w + '</span><span style="color:var(--text-dim);">·</span><span class="mono" style="direction:ltr; font-size:10px;">' + (m.job_id||'?').slice(0,8) + '</span></span>';
+          }).join('');
+        } else {
+          elDetails.textContent = d.was_open ? 'لا توجد فرص ضائعة بهذا التعريف لهذا اليوم — كل ما رُصد تم حَجزه أو لا يزال قيد المحاولة.' : 'لم تُرصد أي شبكة أسبوع بها مواعيد في هذا اليوم بتوقيت القاهرة.';
+          elDetails.style.color = 'var(--text-dim)';
+        }
+      } catch (err) {
+        elDetails.textContent = 'تعذر تحميل التقرير: ' + (err && err.message ? err.message : err);
+        elDetails.style.color = 'var(--danger)';
+      }
+    }
+    document.getElementById('report-date')?.addEventListener('change', function(e){ loadDailyReport(e.target.value); });
+
     loadDashboard();
+    loadDailyReport();
     setInterval(loadDashboard, 10000);
   </script>
 </body>

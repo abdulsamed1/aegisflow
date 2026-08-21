@@ -75,6 +75,12 @@ export const SCHEDULER_PICK_QUERY = `
   ORDER BY jobs.last_check ASC
   LIMIT 3`;
 
+// ponytail: minimal Cairo-day helper for reporting — uses stdlib Intl, no deps
+const cairoDateFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" });
+export function getCairoDateString(date: Date = new Date()): string {
+  return cairoDateFmt.format(date);
+}
+
 // ponytail: global rule — the horizon is a constant, not a parameter
 export const HORIZON_WEEKS = 8;
 
