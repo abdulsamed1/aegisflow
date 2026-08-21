@@ -70,17 +70,19 @@ test("E2E Workflow: Complete Candidate Portal Pipeline & Step 3 Payload Generati
   assert.strictEqual(formatDateForPortal("1998-05-15"), "05/15/1998");
   assert.strictEqual(formatDateForPortal("2030-05-15"), "05/15/2030");
 
-  // 2. Build Full 18-Field Step 3 Payload
-  const step3PayloadString = buildStep3DetailsPayload(clientObj, "C6SP");
+  // 2. Build Full 18-Field Step 3 Payload (real portal names per London evidence, C65P is the ground-truth sample)
+  const step3PayloadString = buildStep3DetailsPayload(clientObj, "C65P");
   const step3Payload = Object.fromEntries(new URLSearchParams(step3PayloadString));
-  assert.strictEqual(step3Payload.LastName, "Hassan");
-  assert.strictEqual(step3Payload.FirstName, "Ahmed");
-  assert.strictEqual(step3Payload.DOB, "05/15/1998");
-  assert.strictEqual(step3Payload.PassportNumber, "A99887766");
-  assert.strictEqual(step3Payload.PostalCode, "11511");
+  assert.strictEqual(step3Payload.Lastname, "Hassan");
+  assert.strictEqual(step3Payload.Firstname, "Ahmed");
+  assert.strictEqual(step3Payload.DateOfBirth, "05/15/1998");
+  assert.strictEqual(step3Payload.TraveldocumentNumber, "A99887766");
+  assert.strictEqual(step3Payload.Postcode, "11511");
   assert.strictEqual(step3Payload.City, "Cairo");
-  assert.strictEqual(step3Payload.CaptchaText, "C6SP");
-  assert.strictEqual(step3Payload.Consent, "true");
+  assert.strictEqual(step3Payload.CaptchaText, "C65P");
+  assert.strictEqual(step3Payload.DSGVOAccepted, "true");
+  assert.ok(!("LastName" in step3Payload), "fabricated name must not be present");
+  assert.ok(!("DOB" in step3Payload));
 
 
   // 3. Test Booking Reference Extraction from Confirmation Page HTML

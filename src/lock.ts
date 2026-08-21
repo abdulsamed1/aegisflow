@@ -65,6 +65,16 @@ export class JobLockDO {
       });
     }
 
+    if (url.pathname === "/status") {
+      const locked = (await this.state.storage.get<boolean>("locked")) || false;
+      const sealed = (await this.state.storage.get<boolean>("sealed")) || false;
+      const lockedAt = (await this.state.storage.get<number>("locked_at")) || 0;
+      return new Response(JSON.stringify({ locked, sealed, lockedAt }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
     return new Response("Not Found", { status: 404 });
   }
 }

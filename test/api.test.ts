@@ -1022,19 +1022,19 @@ test("Booking Engine Utility: buildStep3DetailsPayload includes all 18 PII field
 
   assert.strictEqual(params.get("Office"), "KAIRO");
   assert.strictEqual(params.get("CalendarId"), "44281520");
-  assert.strictEqual(params.get("LastName"), "Doe");
-  assert.strictEqual(params.get("FirstName"), "John");
-  assert.strictEqual(params.get("DOB"), "05/03/1987");
-  assert.strictEqual(params.get("PassportNumber"), "A12345678");
-  assert.strictEqual(params.get("Gender"), "Male");
+  assert.strictEqual(params.get("Lastname"), "Doe");
+  assert.strictEqual(params.get("Firstname"), "John");
+  assert.strictEqual(params.get("DateOfBirth"), "05/03/1987");
+  assert.strictEqual(params.get("TraveldocumentNumber"), "A12345678");
+  assert.strictEqual(params.get("Sex"), "Male");
   assert.strictEqual(params.get("Street"), "123 Main St");
-  assert.strictEqual(params.get("PostalCode"), "01111");
+  assert.strictEqual(params.get("Postcode"), "01111");
   assert.strictEqual(params.get("City"), "Cairo");
   assert.strictEqual(params.get("Country"), "EGYPT");
-  assert.strictEqual(params.get("Phone"), "+201000000000");
+  assert.strictEqual(params.get("Telephone"), "+201000000000");
   assert.strictEqual(params.get("Email"), "john.doe@example.com");
-  assert.strictEqual(params.get("PassportIssueDate"), "06/15/2018");
-  assert.strictEqual(params.get("Consent"), "true");
+  assert.strictEqual(params.get("TraveldocumentDateOfIssue"), "06/15/2018");
+  assert.strictEqual(params.get("DSGVOAccepted"), "true");
   assert.strictEqual(params.get("CaptchaText"), "4438");
   assert.strictEqual(params.get("Command"), "Save");
 });
