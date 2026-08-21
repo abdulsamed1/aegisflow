@@ -1,42 +1,55 @@
 import test from "node:test";
 import assert from "node:assert";
-import { isCaptchaError, terminateCaptchaWorker } from "../src/captcha";
+import { isCaptchaError, terminateCaptchaWorker, solveCaptcha } from "../src/captcha";
 
-// Mock tesseract.js for fast deterministic tests — ponytail: no network, no WASM in CI
-test("captcha: tesseract mock returns C65P and cleans alphanumeric", async () => {
-  const origImport = (global as any).__tesseractMock;
-  // Patch dynamic import by mocking the module cache
-  const modPath = new URL("../src/captcha.ts", import.meta.url).pathname;
-  // Instead, we test solveCaptcha via mocked worker path: inject via global
-  // Easiest: temporarily replace getWorker's import
-  const captchaMod = await import("../src/captcha.ts");
-  // Mock createWorker dependency by monkey-patching global fetch for lang data? Instead test via isCaptchaError + mocked solve
-  // For now, verify isCaptchaError and that solveCaptcha throws on empty without needing tesseract
-  assert.strictEqual(typeof captchaMod.solveCaptcha, "function");
-});
+// --- 1. Edge-Case Tests for isCaptchaError Detection ---
 
-test("captcha: detects captcha error page", () => {
+test("captcha edge cases: detects all error variations of captcha HTML", () => {
+  // Positive matches (should return true)
   assert.ok(isCaptchaError('<div class="message-error">Captcha incorrect</div>'));
-  assert.ok(isCaptchaError('CAPTCHA invalid code'));
-  assert.ok(!isCaptchaError("<div>GESX-KAIRO-123</div>"));
-  assert.ok(!isCaptchaError(""));
+  assert.ok(isCaptchaError('<span class="error">The CAPTCHA code entered is invalid</span>'));
+  assert.ok(isCaptchaError('CAPTCHA verification failed: wrong text entered'));
+  assert.ok(isCaptchaError('<p>Captcha error: please try again</p>'));
+  assert.ok(isCaptchaError('CAPTCHA INCORRECT CODE'));
+  assert.ok(isCaptchaError('captcha WRONG code'));
+
+  // Negative matches (should return false)
+  assert.ok(!isCaptchaError("<div>GESX-KAIRO-123456</div>"), "Confirmation page should not trigger captcha error");
+  assert.ok(!isCaptchaError('<input id="CaptchaText" />'), "Form field with Captcha label should not trigger error");
+  assert.ok(!isCaptchaError('<a title="BotDetect CAPTCHA ASP.NET Form Validation"></a>'), "Help link should not trigger error");
+  assert.ok(!isCaptchaError('<div class="message-error">Internal Server Error 500</div>'), "Non-captcha error should return false");
+  assert.ok(!isCaptchaError(""), "Empty string should return false");
+  assert.ok(!isCaptchaError(null as any), "Null input should return false");
+  assert.ok(!isCaptchaError(undefined as any), "Undefined input should return false");
+  assert.ok(!isCaptchaError(12345 as any), "Non-string input should return false");
 });
 
-test("captcha: requires non-empty image", async () => {
-  const { solveCaptcha } = await import("../src/captcha.ts");
-  await assert.rejects(() => solveCaptcha("   "), /Empty CAPTCHA/);
-  await assert.rejects(() => solveCaptcha("data:image/png;base64,   "), /Empty CAPTCHA/);
+// --- 2. Edge-Case Tests for Image Data Cleaning & Base64 Prefix Stripping ---
+
+test("captcha edge cases: rejects empty, null, or whitespace-only base64 inputs", async () => {
+  await assert.rejects(() => solveCaptcha(""), /Empty CAPTCHA image/);
+  await assert.rejects(() => solveCaptcha("   "), /Empty CAPTCHA image/);
+  await assert.rejects(() => solveCaptcha("\t\n"), /Empty CAPTCHA image/);
+  await assert.rejects(() => solveCaptcha("data:image/png;base64,"), /Empty CAPTCHA image/);
+  await assert.rejects(() => solveCaptcha("data:image/png;base64,   "), /Empty CAPTCHA image/);
+  await assert.rejects(() => solveCaptcha("data:image/jpeg;base64,  \n "), /Empty CAPTCHA image/);
+  await assert.rejects(() => solveCaptcha("data:image/webp;base64,"), /Empty CAPTCHA image/);
 });
 
-test("captcha: open-source solver does not require API key (D3 free first)", async () => {
-  // Verify solveCaptcha signature accepts no apiKey — free path
-  const { solveCaptcha } = await import("../src/captcha.ts");
-  assert.strictEqual(solveCaptcha.length >= 1, true, "solveCaptcha should accept image without apiKey");
-  // No throw for missing key on empty check only; real solve would need tesseract mock
-  await assert.rejects(() => solveCaptcha(""), /Empty/);
+// --- 3. Function Signature & Backward Compatibility ---
+
+test("captcha: function signature accepts optional apiKey and timeout without throwing parameter errors", async () => {
+  assert.strictEqual(solveCaptcha.length >= 1, true, "solveCaptcha must accept image without apiKey");
+  
+  // Accepts optional params before throwing empty check
+  await assert.rejects(() => solveCaptcha("", "legacy-key-123", 30000), /Empty CAPTCHA image/);
 });
 
-test("cleanup: terminate worker", async () => {
+// --- 4. Worker Lifecycle & Cleanup ---
+
+test("captcha: worker termination is idempotent and does not throw when called repeatedly", async () => {
   await terminateCaptchaWorker();
-  assert.ok(true);
+  await terminateCaptchaWorker();
+  await terminateCaptchaWorker();
+  assert.ok(true, "Repeated worker termination completed safely");
 });
