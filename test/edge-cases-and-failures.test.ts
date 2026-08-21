@@ -84,7 +84,8 @@ test("Edge Cases: Pre-Submit Gate enforces case-sensitive Enum bounds", () => {
     { gender: "male", category: "Bachelor" },      // lowercase gender
     { gender: "Male", category: "bachelor" },      // lowercase category
     { gender: "Other", category: "Bachelor" },     // non-supported gender
-    { gender: "Male", category: "PhD" }            // non-supported category
+    { gender: "Male", category: "PhD" },           // non-supported category
+    { gender: "Male", category: "Master_PhD" }     // Master_PhD rejected in Bachelor-only MVP
   ];
 
   for (const { gender, category } of invalidEnums) {

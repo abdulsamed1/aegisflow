@@ -342,7 +342,7 @@ test("Integration: PUT /api/clients/:id round-trips updates, recomputes calendar
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      firstName: "Khaled", lastName: "Hassan", category: "Master_PhD",
+      firstName: "Khaled", lastName: "Hassan", category: "Bachelor",
       familyNameAtBirth: "Hassan", placeOfBirth: "Giza", countryOfBirth: "Egypt",
       nationalityAtBirth: "Egyptian", street: "9 Nile Street", postalCode: "12211",
       city: "Giza", passportIssueDate: "2018-06-15", passportIssuingCountry: "Egypt",
@@ -354,8 +354,8 @@ test("Integration: PUT /api/clients/:id round-trips updates, recomputes calendar
   assert.strictEqual(putRes.status, 200, await putRes.text());
 
   const row = await db.prepare("SELECT * FROM clients WHERE id = ?").bind(created.clientId).first<any>();
-  assert.strictEqual(row.category, "Master_PhD", "Category must update");
-  assert.strictEqual(row.calendar_id, 44279679, "calendar_id must follow the new category");
+  assert.strictEqual(row.category, "Bachelor", "Category must update");
+  assert.strictEqual(row.calendar_id, 44281520, "calendar_id must follow the new category");
   assert.strictEqual(row.passport_number_enc, before.passport_number_enc, "Empty passport must keep existing ciphertext");
   assert.notStrictEqual(row.first_name_enc, "Khaled", "First name must be stored encrypted");
   assert.notStrictEqual(row.email_enc, "khaled@example.com", "Email must be stored encrypted");
@@ -487,7 +487,7 @@ test("Integration: invalid category value is rejected by Worker API with 400, an
 
   assert.strictEqual(res.status, 400, "Worker API returns 400 Bad Request on invalid category");
   const body = await res.json() as any;
-  assert.strictEqual(body.error, "Invalid category. Must be 'Bachelor' or 'Master_PhD'");
+  assert.strictEqual(body.error, "Invalid category. Must be 'Bachelor'");
 
   // 2. Direct D1 Database schema enforcement: SQL INSERT with invalid category throws CHECK constraint error
   const db = await mf.getD1Database("DB");
