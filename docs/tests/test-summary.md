@@ -5,10 +5,11 @@ Generated and executed automated API & E2E tests for candidate CRUD endpoints, s
 
 ## Test Suite Execution Results
 
-- **Total Test Cases**: 63
-- **Passing**: 63
+- **Total Test Cases**: 119
+- **Passing**: 119
 - **Failing**: 0
-- **Duration**: ~15.3 seconds
+- **Duration**: ~18 seconds
+- **Last verified**: 2026-08-22 (scanner regression tests + captcha audio parsing added)
 
 ---
 

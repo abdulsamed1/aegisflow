@@ -186,6 +186,48 @@ test("Scanner Contract: Rejects HTML missing standard scheduler table as UNKNOWN
   }
 });
 
+// Regression 2026-08-22 live KAIRO: slot pages carry message-error "Please choose an appointment!" —
+// the old blanket check classified every open calendar as NO_SLOTS.
+test("Scanner Contract: slot page with 'Please choose an appointment!' message-error is SLOTS (live regression)", async () => {
+  const origFetch = globalThis.fetch;
+  try {
+    // Verbatim structure from live GET /HomeWeb/Scheduler KAIRO cal=26425165 mon=9/21/2026
+    globalThis.fetch = (async () => {
+      return new Response(`<html><head><title>Austrian appointment system - Choose appointment</title></head><body>
+        <p class="message-error">Please choose an appointment!</p>
+        <h2>Appointments available for "Aufenthaltstitel Rot-Wei&#223;-Rot Karte"</h2>
+        <form action="/HomeWeb/Scheduler" method="post">
+        <input type="radio" name="Start" value="9/27/2026 9:00:00 AM">
+        <table class="no-border"><tr><td>grid</td></tr></table>
+        </form></body></html>`, { status: 200 });
+    }) as any;
+
+    const res = await scanAvailability(26425165, "9/21/2026 12:00:00 AM", "test-cookie");
+    assert.strictEqual(res.status, "SLOTS");
+    assert.strictEqual(res.hasSlots, true);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("Scanner Contract: genuine empty calendar ('no appointments available') is NO_SLOTS (live regression)", async () => {
+  const origFetch = globalThis.fetch;
+  try {
+    // Verbatim from live ANKARA cal=8983879
+    globalThis.fetch = (async () => {
+      return new Response(`<html><body>
+        <p class="message-error">For your selection there are unfortunately no appointments available</p>
+        </body></html>`, { status: 200 });
+    }) as any;
+
+    const res = await scanAvailability(8983879, "9/21/2026 12:00:00 AM", "test-cookie");
+    assert.strictEqual(res.status, "NO_SLOTS");
+    assert.strictEqual(res.hasSlots, false);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
 // --- 3. Unicode, Encoding & Date Helper Edge Cases ---
 
 test("Unicode Encoding: Handles Arabic & Hyphenated Special Characters in PII", () => {

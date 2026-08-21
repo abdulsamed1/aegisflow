@@ -130,6 +130,71 @@ async function solveWithTesseract(imageBase64: string): Promise<string> {
 }
 
 /**
+ * Parse raw Whisper transcription of a BotDetect sound challenge into the code.
+ * Whisper emits spoken characters with separators ("T, D, R, 5, 8.") and sometimes
+ * hallucinates repeats — collapse consecutive duplicates, then accept 4-6 char results.
+ */
+export function parseAudioTranscription(rawText: string): string {
+  const tokens = String(rawText).toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean);
+  // collapse immediate repeats ("9 4 3 2 3 2" style stutter or double-speak)
+  const collapsed: string[] = [];
+  for (const t of tokens) {
+    if (collapsed[collapsed.length - 1] !== t) collapsed.push(t);
+  }
+  let code = collapsed.join("");
+  if (code.length > 6) code = code.slice(0, 6);
+  return code;
+}
+
+/**
+ * Solve CAPTCHA from the BotDetect SOUND challenge (WAV bytes).
+ * Audio is clean isolated speech — far higher first-attempt accuracy than distorted-image OCR.
+ * Resolution order: Workers AI binding (whisper) -> REST -> error (caller falls back to image solver).
+ */
+export async function solveCaptchaAudio(
+  wavBytes: Uint8Array,
+  ai?: any
+): Promise<string> {
+  if (!wavBytes || wavBytes.length === 0) throw new Error("Empty CAPTCHA audio");
+
+  async function run(model: string): Promise<string> {
+    let raw = "";
+    if (ai) {
+      const res: any = await ai.run(model, { audio: wavBytes });
+      raw = String(res?.text || "");
+    } else {
+      const envObj = (globalThis as any).process?.env || {};
+      const accountId = envObj.CF_ACCOUNT_ID;
+      const apiToken = envObj.CF_API_TOKEN || envObj.CLOUDFLARE_API_TOKEN;
+      if (!accountId || !apiToken) throw new Error("CF_ACCOUNT_ID and CF_API_TOKEN required for local Workers AI");
+      const response = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`,
+        { method: "POST", headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "audio/wav" }, body: wavBytes as any }
+      );
+      const json: any = await response.json();
+      raw = String(json?.result?.text || "");
+      if (!raw) throw new Error(json?.errors?.[0]?.message || "empty whisper result");
+    }
+    const code = parseAudioTranscription(raw);
+    if (!code || code.length < 3) throw new Error(`whisper low confidence: raw="${raw}"`);
+    return code;
+  }
+
+  // ponytail: tiny-en is fastest; large-v3-turbo only if tiny returns implausible length
+  try {
+    const code = await run("@cf/openai/whisper-tiny-en");
+    if (code.length >= 4 && code.length <= 5) return code;
+    const refined = await run("@cf/openai/whisper-large-v3-turbo");
+    if (refined.length >= 4 && refined.length <= 5) return refined;
+    return code.length > refined.length ? refined : code; // shorter transcription usually = fewer hallucinations
+  } catch (e: any) {
+    if (!ai) throw e;
+    console.warn(`whisper binding failed: ${e.message}, falling back`);
+    throw e;
+  }
+}
+
+/**
  * Solve CAPTCHA from base64 image (data URI or raw). Returns 4-char code.
  *
  * Resolution order:
