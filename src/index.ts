@@ -3,9 +3,10 @@ import { getCairoTimeInfo, rollingMondays, SCHEDULER_PICK_QUERY } from "./schedu
 import { sendTelegramNotification } from "./telegram";
 import { JobLockDO } from "./lock";
 import { encryptPII, decryptPII, maskPassport } from "./crypto";
-import { executeDirectHttpBooking, DecryptedClientData } from "./booking-http";
+import { DecryptedClientData } from "./booking-http";
 import { executePlaywrightFallback } from "./browser-fallback";
 import { isCircuitBreakerTripped, getBackoffUntilISO } from "./backoff";
+import { decideReverifyAction, decideRetryAction } from "./booking-flow";
 
 export { JobLockDO };
 
@@ -18,6 +19,7 @@ export interface Env {
   TELEGRAM_CHAT_ID?: string;
   PII_ENCRYPTION_KEY?: string;
   ADMIN_API_KEY?: string;
+  CAPTCHA_API_KEY?: string;
   ENVIRONMENT?: string;
 }
 
@@ -427,6 +429,19 @@ export default {
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         }
+        // ponytail: guard mid-flight booking — if DO lock is held/sealed, reject 423
+        if (job) {
+          try {
+            const stRes = await env.JOB_LOCK.get(env.JOB_LOCK.idFromName(job.id)).fetch("https://lock/status");
+            const st: any = await stRes.json();
+            if (st.locked || st.sealed) {
+              return new Response(JSON.stringify({ error: "Job is currently booking — deletion locked (423)" }), {
+                status: 423,
+                headers: { "Content-Type": "application/json", ...corsHeaders }
+              });
+            }
+          } catch {}
+        }
 
         // ponytail: detach scheduler audit rows first — they FK-reference the client and would block the delete
         await env.DB.prepare("UPDATE audit_logs SET client_id = NULL, job_id = NULL WHERE client_id = ?")
@@ -645,11 +660,34 @@ export default {
         calendarId: job.calendar_id
       };
 
-      const httpRes = await executeDirectHttpBooking(decryptedClient, slotMonday, sessionCookie);
+      // ponytail: re-verify slot before burning browser budget (step 4 latency gap)
+      const reverify = await scanAvailability(job.calendar_id, slotMonday, sessionCookie);
+      const reverifyAction = decideReverifyAction(reverify);
+      if (reverifyAction !== "PROCEED") {
+        console.warn(`[REVERIFY] Slot gone before Playwright for Job ${job.id}: ${reverify.status} — releasing lock without browser launch`);
+        await doStub.fetch("https://lock/release");
+        bgTasks.push(env.DB.prepare(
+          `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
+           VALUES (?, ?, 'SLOT_GONE_PRE_LAUNCH', ?, ?)`
+        ).bind(job.id, job.client_id, reverify.durationMs, JSON.stringify({ week: slotMonday, status: reverify.status })).run());
+        return;
+      }
 
-      if (httpRes.success) {
-        console.log(`Booking completed for Job ${job.id}. Ref: ${httpRes.referenceId}`);
-        // Guard: a cancel during the in-flight booking must win (D8 terminal semantics)
+      // Playwright wizard is the single real booking path (London evidence: 31 fields, BDC_*, C65P dynamic)
+      console.log(`[BOOKING] Launching Playwright wizard for Job ${job.id} week ${slotMonday}`);
+      let pwRes = await executePlaywrightFallback(env.MYBROWSER, decryptedClient, {
+        startTime: slotMonday,
+        captchaApiKey: env.CAPTCHA_API_KEY,
+      });
+
+      let totalBrowserSeconds = pwRes.durationSeconds;
+      bgTasks.push(env.DB.prepare(
+        `INSERT INTO daily_metrics (date, total_browser_seconds) VALUES (DATE('now'), ?)
+         ON CONFLICT(date) DO UPDATE SET total_browser_seconds = total_browser_seconds + ?`
+      ).bind(pwRes.durationSeconds, pwRes.durationSeconds).run());
+
+      if (pwRes.success && pwRes.referenceId) {
+        console.log(`Booking completed for Job ${job.id}. Ref: ${pwRes.referenceId}`);
         await env.DB.prepare(
           `UPDATE jobs SET status = 'BOOKED' WHERE id = ? AND status = 'ACTIVE' AND enabled = 1`
         ).bind(job.id).run();
@@ -658,39 +696,82 @@ export default {
           `INSERT INTO daily_metrics (date, bookings_completed) VALUES (DATE('now'), 1)
            ON CONFLICT(date) DO UPDATE SET bookings_completed = bookings_completed + 1`
         ).run());
-
         if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
           bgTasks.push(sendTelegramNotification(
             env.TELEGRAM_BOT_TOKEN,
             env.TELEGRAM_CHAT_ID,
-            `🎉 *[BOOKED] Appointment Secured!*\n\nClient: \`${decryptedClient.firstName} ${decryptedClient.lastName}\`\nPassport: \`${maskPassport(decryptedClient.passportNumber)}\`\nReference ID: \`${httpRes.referenceId}\`\nExecution Time: \`${httpRes.durationMs}ms\``
+            `🎉 *[BOOKED] Appointment Secured!*\n\nClient: \`${decryptedClient.firstName} ${decryptedClient.lastName}\`\nPassport: \`${maskPassport(decryptedClient.passportNumber)}\`\nReference ID: \`${pwRes.referenceId}\`\nExecution Time: \`${Math.round(pwRes.durationSeconds * 1000)}ms\``
           ));
         }
-      } else {
-        console.warn(`[FALLBACK] Direct booking unavailable (${httpRes.errorMessage}). Launching Playwright...`);
+        // lock sealed — no release
+        bgTasks.push(env.DB.prepare(
+          `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
+           VALUES (?, ?, 'BOOKED', ?, ?)`
+        ).bind(job.id, job.client_id, Math.round(pwRes.durationSeconds * 1000), JSON.stringify({ referenceId: pwRes.referenceId, week: slotMonday })).run());
+        return;
+      }
 
-        const pwRes = await executePlaywrightFallback(env.MYBROWSER, decryptedClient);
+      // First attempt failed — bounded retry: one re-scan + one more wizard launch if slot still there and breaker not tripped
+      // Check breaker before retry (use current daily total + this attempt's seconds)
+      const breakerTripped = isCircuitBreakerTripped((metricsToday.total_browser_seconds || 0) + totalBrowserSeconds);
+      const rescanForRetry = await scanAvailability(job.calendar_id, slotMonday, sessionCookie);
+      const retryDecision = decideRetryAction(pwRes, rescanForRetry, breakerTripped);
 
+      if (retryDecision === "RETRY") {
+        console.warn(`[RETRY] First booking failed for Job ${job.id} (${pwRes.errorMessage}) — slot still SLOTS, retrying once`);
+        bgTasks.push(env.DB.prepare(
+          `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
+           VALUES (?, ?, 'BOOKING_RETRY', ?, ?)`
+        ).bind(job.id, job.client_id, Math.round(pwRes.durationSeconds * 1000), JSON.stringify({ error: pwRes.errorMessage, week: slotMonday })).run());
+
+        const pwRes2 = await executePlaywrightFallback(env.MYBROWSER, decryptedClient, {
+          startTime: slotMonday,
+          captchaApiKey: env.CAPTCHA_API_KEY,
+        });
+        totalBrowserSeconds += pwRes2.durationSeconds;
         bgTasks.push(env.DB.prepare(
           `INSERT INTO daily_metrics (date, total_browser_seconds) VALUES (DATE('now'), ?)
            ON CONFLICT(date) DO UPDATE SET total_browser_seconds = total_browser_seconds + ?`
-        ).bind(pwRes.durationSeconds, pwRes.durationSeconds).run());
+        ).bind(pwRes2.durationSeconds, pwRes2.durationSeconds).run());
 
-        await doStub.fetch("https://lock/release");
-
-        if (!pwRes.success) {
-          const checkCount = (job.check_count || 0) + 1;
-          const backoffUntil = getBackoffUntilISO(checkCount);
+        if (pwRes2.success && pwRes2.referenceId) {
+          console.log(`Booking completed on retry for Job ${job.id}. Ref: ${pwRes2.referenceId}`);
           await env.DB.prepare(
-            `UPDATE jobs SET status = 'BOOKING_FAILED', backoff_until = ?, last_error_code = ? WHERE id = ?`
-          ).bind(backoffUntil, pwRes.errorMessage || "BOOKING_FAILED", job.id).run();
-
+            `UPDATE jobs SET status = 'BOOKED' WHERE id = ? AND status = 'ACTIVE' AND enabled = 1`
+          ).bind(job.id).run();
+          await doStub.fetch("https://lock/seal");
+          bgTasks.push(env.DB.prepare(
+            `INSERT INTO daily_metrics (date, bookings_completed) VALUES (DATE('now'), 1)
+             ON CONFLICT(date) DO UPDATE SET bookings_completed = bookings_completed + 1`
+          ).run());
+          if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
+            bgTasks.push(sendTelegramNotification(
+              env.TELEGRAM_BOT_TOKEN,
+              env.TELEGRAM_CHAT_ID,
+              `🎉 *[BOOKED] Appointment Secured (retry)!*\n\nClient: \`${decryptedClient.firstName} ${decryptedClient.lastName}\`\nPassport: \`${maskPassport(decryptedClient.passportNumber)}\`\nReference ID: \`${pwRes2.referenceId}\``
+            ));
+          }
           bgTasks.push(env.DB.prepare(
             `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
-             VALUES (?, ?, 'BOOKING_FAILED', ?, ?)`
-          ).bind(job.id, job.client_id, Math.round(pwRes.durationSeconds * 1000), JSON.stringify({ error: pwRes.errorMessage })).run());
+             VALUES (?, ?, 'BOOKED', ?, ?)`
+          ).bind(job.id, job.client_id, Math.round(pwRes2.durationSeconds * 1000), JSON.stringify({ referenceId: pwRes2.referenceId, week: slotMonday, retry: true })).run());
+          return;
         }
+        // Retry also failed — fall through to requeue with last error
+        pwRes = pwRes2;
       }
+
+      // Both attempts failed (or no retry) — re-queue ACTIVE with backoff (state machine: BOOKING_FAILED → ACTIVE per backoff)
+      await doStub.fetch("https://lock/release");
+      const checkCount = (job.check_count || 0) + 1;
+      const backoffUntil = getBackoffUntilISO(checkCount);
+      await env.DB.prepare(
+        `UPDATE jobs SET status = 'ACTIVE', backoff_until = ?, last_error_code = ? WHERE id = ?`
+      ).bind(backoffUntil, pwRes.errorMessage || "BOOKING_FAILED", job.id).run();
+      bgTasks.push(env.DB.prepare(
+        `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
+         VALUES (?, ?, 'BOOKING_FAILED', ?, ?)`
+      ).bind(job.id, job.client_id, Math.round(totalBrowserSeconds * 1000), JSON.stringify({ error: pwRes.errorMessage, week: slotMonday, totalBrowserSeconds })).run());
     }));
 
     ctx.waitUntil(Promise.all(bgTasks));
