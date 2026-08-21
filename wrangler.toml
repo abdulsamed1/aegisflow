@@ -9,6 +9,7 @@ mode = "smart"
 
 [vars]
 ENVIRONMENT = "production"
+SCAN_BURSTS = "2" # ponytail: Free cap 50 subrequests/invocation → 2*8*3≈48 fetches; raise to 12 only on Workers Paid (1000 subrequests)
 
 # Cloudflare D1 Database Binding
 [[d1_databases]]
