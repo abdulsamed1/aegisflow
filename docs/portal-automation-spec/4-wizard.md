@@ -7,18 +7,18 @@
 - زر `input[type=submit][name=Command][value=Next]`.
 
 ## خطوة 2 — اختيار التصنيف
-- `select#CalendarId` (required) — التصنيفات المرصودة لقاهرة:
+- `select#CalendarId` (required) — التصنيفات المرصودة لقاهرة (المدعوم في الـMVP هو Bachelor فقط):
 
-| التصنيف (نص القائمة الأصلي) | CalendarId |
-|-----------------------------|------------|
-| Aufenthaltsbewilligung Student (nur Bachelor) | **44281520** |
-| Aufenthaltsbewilligung Student (nur Master, PhD und Stipendiate) | **44279679** |
-| Aufenthaltstitel Rot-Weiß-Rot Karte | UNVERIFIED |
-| Familienzusammenführung gem. NAG (ÄgypterInnen) | UNVERIFIED |
-| Familienzusammenführung gem. NAG (sonstige Staatsangehörige) | UNVERIFIED |
-| Österreicher Personenstandsangelegenheiten | UNVERIFIED |
-| Österreicher (Reisepässe, Staatsbürgerschaft) | UNVERIFIED |
-| Visum D zur Arbeitsuche (Job-Seeker) | UNVERIFIED |
+| التصنيف (نص القائمة الأصلي) | CalendarId | الحالة في النظام |
+|-----------------------------|------------|------------------|
+| Aufenthaltsbewilligung Student (nur Bachelor) | **44281520** | **مدعوم في الـMVP (In Scope)** |
+| Aufenthaltsbewilligung Student (nur Master, PhD und Stipendiate) | **44279679** | خارج نطاق الـMVP (Out of Scope) |
+| Aufenthaltstitel Rot-Weiß-Rot Karte | UNVERIFIED | خارج نطاق الـMVP |
+| Familienzusammenführung gem. NAG (ÄgypterInnen) | UNVERIFIED | خارج نطاق الـMVP |
+| Familienzusammenführung gem. NAG (sonstige Staatsangehörige) | UNVERIFIED | خارج نطاق الـMVP |
+| Österreicher Personenstandsangelegenheiten | UNVERIFIED | خارج نطاق الـMVP |
+| Österreicher (Reisepässe, Staatsbürgerschaft) | UNVERIFIED | خارج نطاق الـMVP |
+| Visum D zur Arbeitsuche (Job-Seeker) | UNVERIFIED | خارج نطاق الـMVP |
 
 - ملاحظة: نصوص التصنيفات تظهر بالألمانية حتى في الواجهة الإنجليزية.
 

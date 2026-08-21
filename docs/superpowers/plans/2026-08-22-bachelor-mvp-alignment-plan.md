@@ -102,3 +102,4 @@
   git add docs/
   git commit -m "docs: align documentation with Bachelor focus and repaired scanner"
   ```
+

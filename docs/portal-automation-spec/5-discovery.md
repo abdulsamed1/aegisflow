@@ -31,9 +31,9 @@ Command=Next
 > صفحة **تحتوي مواعيد** تحمل `<p class="message-error">Please choose an appointment!</p>` — رسالة "اختر موعداً" وليست خطأ نفاد!
 > العقد القديم ("أي message-error = لا مواعيد") كان يُصنّف كل تقويم مفتوح خطأً NO_SLOTS. أُصلح في `src/scanner.ts` مع اختبارَي regression من HTML حي (`test/edge-cases-and-failures.test.ts`).
 
-1. إن وُجد نص `no appointments available` (ضمن message-error أو غيره، مثال موثق: "For your selection there are unfortunately no appointments available" من ANKARA 8983879 الفارغ فعلاً) → **لا مواعيد** لهذا الأسبوع.
-2. إن وُجد `input[type="radio"]` بقيمة موعد (`value="M/D/YYYY h:mm:ss AM/PM"`) → **توجد مواعيد** → الالتقاط وفق القسم 8. هذا الإشارة الحاسمة الوحيدة للمواعيد — مستقلة عن وجود message-error.
-3. أي استجابة غير 200 أو بنية بلا radios وبلا نص النفاد → `UNKNOWN` (لا قرار حجز مبني عليها).
+1. إن وُجد نص `no appointments available` (بشكل غير حساس لحالة الأحرف Case-Insensitive، سواء ضمن message-error أو غيره، مثال موثق: "For your selection there are unfortunately no appointments available" من ANKARA 8983879 الفارغ فعلاً) → **لا مواعيد** (`NO_SLOTS`) لهذا الأسبوع.
+2. إن وُجدت عناصر `input[type="radio"]` بقيمة موعد (`value="M/D/YYYY h:mm:ss AM/PM"`) أو مواعيد داخل شبكة الجدول → **توجد مواعيد** (`SLOTS`) → الالتقاط وفق القسم 8. هذه هي الإشارة الحاسمة الوحيدة للمواعيد، وتنبيه `<p class="message-error">Please choose an appointment!</p>` **لا يُعد إشارة سلبية** لنفاد المواعيد لأنه يظهر طبيعيًا في الصفحات المتاحة.
+3. أي استجابة غير 200 أو بنية غير متوقعة بلا radios وبلا نص النفاد → `UNKNOWN` (لا قرار حجز مبني عليها، ولا تُعامل كمواعيد أبدًا).
 
 ### أدلة حية (2026-08-22)
 
