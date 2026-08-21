@@ -1,7 +1,7 @@
 # 5. Functional Requirements (FR)
 
 ## FR-1: Client Management & PII Schema
-- System shall store complete client profile: First Name, Last Name, Family Name at Birth, Gender, Date of Birth, Place of Birth, Country of Birth, Nationality, Nationality at Birth, Passport Number, Passport Issue Date, Passport Issuing Country, Passport Expiry, Street & House Number, Postal Code, City, Email, Phone Number, Category (Bachelor vs. Master/PhD).
+- System shall store complete client profile: First Name, Last Name, Family Name at Birth, Gender, Date of Birth, Place of Birth, Country of Birth, Nationality, Nationality at Birth, Passport Number, Passport Issue Date, Passport Issuing Country, Passport Expiry, Street & House Number, Postal Code, City, Email, Phone Number, Category (Bachelor only in MVP scope; CalendarId 44281520).
 - All client PII fields shall be encrypted using AES-256-GCM before writing to Cloudflare D1. Encryption classes follow the 2026-08-20 convention: identity/contact strings (names, passport number, address street/city/postal code, email, phone) encrypted; dates and categorical values (DoB, passport dates, nationalities, place/country of birth) plaintext — same class as the pre-existing `dob`/`nationality` columns.
 
 ## FR-2: Structural Validation Engine
@@ -13,7 +13,7 @@
 - Preference rules are **global and identical for every client** (operator decision 2026-08-20 — no per-client customization):
   - Operating window: every day, 07:00–18:00 Cairo time (Friday included).
   - Scan horizon: current week + 7 forward weeks (8 Mondays, global constant).
-- The only per-client preference is `calendar_id`: `44281520` (Bachelor) or `44279679` (Master/PhD/Scholarship).
+- The supported `calendar_id` under the MVP scope is exclusively `44281520` (Bachelor). (Master/PhD `44279679` and other categories are out of scope).
 - No per-client date range, day selection, or time range is collected or stored.
 
 ## FR-4: Fair Scheduler Engine (Global Cairo Window)
@@ -25,13 +25,13 @@
 
 ## FR-5: Single POST Discovery Scanner
 - Discovery scanner shall execute availability checks via direct HTTP `POST` to `https://appointment.bmeia.gv.at/HomeWeb/Scheduler` (verified contract: `docs/portal-automation-spec.md` section 5).
-- Payload parameters (verified only): `Language=en`, `Office=KAIRO`, `CalendarId=<ID>`, `PersonCount=1`, `Monday=<Week_Monday>`, `Command=Next`.
+- Payload parameters (verified only): `Language=en`, `Office=KAIRO`, `CalendarId=44281520`, `PersonCount=1`, `Monday=<Week_Monday>`, `Command=Next`.
 - Session handling: Worker must warm cookies via a GET redirect pass (`AspxAutoDetectCookieSupport=1` + `ASP.NET_SessionId`) and persist them in KV.
 - Measured latency: ~270ms average (first request ~770ms, steady state 116–216ms).
 - **3-state response contract**:
-  1. `p.message-error` / "no appointments available" → `NO_SLOTS`.
-  2. Scheduler page without the error and a non-empty week grid → `SLOTS`.
-  3. Anything else (non-200, unexpected structure) → `UNKNOWN` — **never** treated as a slot.
+  1. Response containing `no appointments available` (case-insensitive) → `NO_SLOTS`.
+  2. Response containing `input[type="radio"]` elements with date/time values (`value="M/D/YYYY h:mm:ss AM/PM"`) or slot entries in the scheduler grid → `SLOTS` (note: `<p class="message-error">Please choose an appointment!</p>` is present on valid slot pages and is NOT treated as no slots).
+  3. Anything else (non-200, unexpected structure without radios and without the no-appointments message) → `UNKNOWN` — **never** treated as a slot.
 
 ## FR-6: Distributed Locking & Double-Booking Prevention
 - Each client job shall be bound to a dedicated Cloudflare Durable Object instance acting as an atomic state lock.
