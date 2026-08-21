@@ -63,7 +63,7 @@ export function checkPreSubmitGate(client: DecryptedClientData): GateResult {
     blockers.push(`Unknown calendarId: ${client.calendarId} — must be one of ${KNOWN_CALENDAR_IDS.join(", ")}`);
   }
 
-  // Date format validation (YYYY-MM-DD)
+  // Date format validation (YYYY-MM-DD + valid calendar month/day)
   const dateFields: Array<[keyof DecryptedClientData, string]> = [
     ["dob", "DateOfBirth"],
     ["passportIssueDate", "TraveldocumentDateOfIssue"],
@@ -71,8 +71,15 @@ export function checkPreSubmitGate(client: DecryptedClientData): GateResult {
   ];
   for (const [field, portalName] of dateFields) {
     const val = client[field];
-    if (typeof val === "string" && val.trim() && !DATE_PATTERN.test(val)) {
-      blockers.push(`Invalid date format for ${field}: "${val}" — expected YYYY-MM-DD (portal: ${portalName})`);
+    if (typeof val === "string" && val.trim()) {
+      if (!DATE_PATTERN.test(val)) {
+        blockers.push(`Invalid date format for ${field}: "${val}" — expected YYYY-MM-DD (portal: ${portalName})`);
+      } else {
+        const [y, m, d] = val.split("-").map(Number);
+        if (m < 1 || m > 12 || d < 1 || d > 31) {
+          blockers.push(`Invalid date value for ${field}: "${val}" — month or day out of bounds (portal: ${portalName})`);
+        }
+      }
     }
   }
 
