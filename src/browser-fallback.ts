@@ -3,15 +3,13 @@ import { DecryptedClientData } from "./booking-http";
 export interface BrowserFallbackResult {
   success: boolean;
   durationSeconds: number;
-  isDryRun: boolean;
   screenshotBase64?: string;
   errorMessage?: string;
 }
 
 export async function executePlaywrightFallback(
   browserBinding: any,
-  client: DecryptedClientData,
-  isDryRun: boolean = true
+  client: DecryptedClientData
 ): Promise<BrowserFallbackResult> {
   const startTime = Date.now();
   let browser: any = null;
@@ -29,23 +27,6 @@ export async function executePlaywrightFallback(
 
     await page.goto("https://appointment.bmeia.gv.at/", { waitUntil: "domcontentloaded", timeout: 30000 });
 
-    const durationSeconds = (Date.now() - startTime) / 1000.0;
-
-    if (isDryRun) {
-      const screenshotBuffer = await page.screenshot({ type: "jpeg", quality: 60 });
-      const screenshotBase64 = screenshotBuffer.toString("base64");
-
-      console.log(`[PLAYWRIGHT DRY-RUN] Portal reached and captured in ${durationSeconds.toFixed(2)}s. Halted prior to submit.`);
-
-      return {
-        success: true,
-        durationSeconds,
-        isDryRun: true,
-        screenshotBase64
-      };
-    }
-
-    // Live Playwright Submission
     await page.fill('input[name="LastName"]', client.lastName);
     await page.fill('input[name="FirstName"]', client.firstName);
     await page.fill('input[name="PassportNumber"]', client.passportNumber);
@@ -75,14 +56,12 @@ export async function executePlaywrightFallback(
     return {
       success: true,
       durationSeconds: durationSec,
-      isDryRun: false,
       screenshotBase64
     };
   } catch (error: any) {
     return {
       success: false,
       durationSeconds: (Date.now() - startTime) / 1000.0,
-      isDryRun,
       errorMessage: error.message || "Playwright browser session failed"
     };
   } finally {

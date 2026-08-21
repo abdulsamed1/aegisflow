@@ -1,8 +1,5 @@
 /**
- * Booking Engine — G0-gated
- * The portal booking path (slot selection, form fields, submit endpoint) is UNVERIFIED.
- * Until the first live slot is captured (portal-automation-spec section 8), live booking
- * is disabled and Dry-Run payload preparation is the only allowed operation.
+ * Booking Engine — live booking only (DRY_RUN removed per operator request).
  */
 
 export interface DecryptedClientData {
@@ -34,7 +31,6 @@ export interface HttpBookingResult {
   clientId: string;
   success: boolean;
   durationMs: number;
-  isDryRun: boolean;
   referenceId?: string;
   requiresPlaywrightFallback: boolean;
   errorMessage?: string;
@@ -56,33 +52,14 @@ export function buildPreSerializedPayload(client: DecryptedClientData, mondayDat
   return params.toString();
 }
 
-/**
- * Dry-Run: prepares the verified payload and halts before any submission.
- * Live mode: disabled until the booking path is verified at first slot capture (G0).
- * Never fabricates a booking reference.
- */
 export async function executeDirectHttpBooking(
   client: DecryptedClientData,
   mondayDateString: string,
-  isDryRun: boolean = true,
   cookie?: string
 ): Promise<HttpBookingResult> {
   const startTime = Date.now();
 
   const body = client.preSerializedBody || buildStep3DetailsPayload(client, "AUTO", mondayDateString);
-
-  if (isDryRun) {
-    const durationMs = Date.now() - startTime;
-    console.log(`[DRY-RUN] Verified discovery payload for client ${client.id} ready in ${durationMs}ms. Halted prior to any submission.`);
-    return {
-      clientId: client.id,
-      success: true,
-      durationMs,
-      isDryRun: true,
-      requiresPlaywrightFallback: false,
-      responseLength: 0
-    };
-  }
 
   try {
     const headers: Record<string, string> = {
@@ -112,7 +89,6 @@ export async function executeDirectHttpBooking(
         clientId: client.id,
         success: true,
         durationMs,
-        isDryRun: false,
         referenceId: ref,
         requiresPlaywrightFallback: false,
         responseLength: html.length
@@ -123,7 +99,6 @@ export async function executeDirectHttpBooking(
       clientId: client.id,
       success: false,
       durationMs,
-      isDryRun: false,
       requiresPlaywrightFallback: true,
       errorMessage: "HTTP response received but booking confirmation reference missing (falling back to browser)",
       responseLength: html.length
@@ -133,7 +108,6 @@ export async function executeDirectHttpBooking(
       clientId: client.id,
       success: false,
       durationMs: Date.now() - startTime,
-      isDryRun: false,
       requiresPlaywrightFallback: true,
       errorMessage: err?.message || "Direct HTTP submission network error"
     };
@@ -141,12 +115,11 @@ export async function executeDirectHttpBooking(
 }
 
 /**
- * Batch dispatcher — handles both Dry-Run and Live modes concurrently.
+ * Batch dispatcher — live booking.
  */
 export async function executeBatchFastPathBookings(
   clients: DecryptedClientData[],
   mondayDateString: string,
-  isDryRun: boolean = true,
   cookie?: string
 ): Promise<HttpBookingResult[]> {
   const preppedClients = clients.map((c) => ({
@@ -155,7 +128,7 @@ export async function executeBatchFastPathBookings(
   }));
 
   return Promise.all(
-    preppedClients.map((client) => executeDirectHttpBooking(client, mondayDateString, isDryRun, cookie))
+    preppedClients.map((client) => executeDirectHttpBooking(client, mondayDateString, cookie))
   );
 }
 
