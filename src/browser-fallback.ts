@@ -9,12 +9,30 @@ export interface BrowserFallbackResult {
   errorMessage?: string;
 }
 
-// ponytail: 20s throttle between browser launches (NFR-2) — module-level gate
+// ponytail: 20s sequential FIFO queue between browser launches (NFR-2) — module-level gate
 let lastLaunchAt = 0;
-async function throttleLaunch(): Promise<void> {
-  const wait = Math.max(0, 20000 - (Date.now() - lastLaunchAt));
-  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-  lastLaunchAt = Date.now();
+let launchGate: Promise<void> = Promise.resolve();
+
+export async function throttleLaunch(): Promise<void> {
+  const currentGate = launchGate;
+  let releaseGate: () => void;
+  launchGate = new Promise<void>((resolve) => {
+    releaseGate = resolve;
+  });
+
+  try {
+    await currentGate;
+    const wait = Math.max(0, 20000 - (Date.now() - lastLaunchAt));
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    lastLaunchAt = Date.now();
+  } finally {
+    releaseGate!();
+  }
+}
+
+export function resetThrottleLaunchForTests(timestamp = 0): void {
+  lastLaunchAt = timestamp;
+  launchGate = Promise.resolve();
 }
 
 export async function executePlaywrightFallback(

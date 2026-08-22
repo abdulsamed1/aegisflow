@@ -180,16 +180,46 @@ export async function solveCaptchaAudio(
     return code;
   }
 
-  // ponytail: tiny-en is fastest; large-v3-turbo only if tiny returns implausible length
+  // ponytail: parallel whisper execution when ai binding present — eliminates sequential fallback latency gap
+  const t0 = Date.now();
   try {
+    if (ai) {
+      const [tinySettled, turboSettled] = await Promise.allSettled([
+        run("@cf/openai/whisper-tiny-en"),
+        run("@cf/openai/whisper-large-v3-turbo")
+      ]);
+      const tinyCode = tinySettled.status === "fulfilled" ? tinySettled.value : "";
+      const turboCode = turboSettled.status === "fulfilled" ? turboSettled.value : "";
+
+      let chosen = "";
+      let model = "";
+      if (tinyCode.length >= 4 && tinyCode.length <= 5) {
+        chosen = tinyCode;
+        model = "whisper-tiny-en";
+      } else if (turboCode.length >= 4 && turboCode.length <= 5) {
+        chosen = turboCode;
+        model = "whisper-large-v3-turbo";
+      } else if (tinyCode || turboCode) {
+        chosen = (tinyCode && turboCode) ? (tinyCode.length > turboCode.length ? turboCode : tinyCode) : (tinyCode || turboCode);
+        model = chosen === turboCode ? "whisper-large-v3-turbo" : "whisper-tiny-en";
+      }
+
+      if (!chosen || chosen.length < 3) {
+        const err = tinySettled.status === "rejected" ? tinySettled.reason?.message : (turboSettled.status === "rejected" ? turboSettled.reason?.message : "transcription failed");
+        throw new Error(`Whisper audio transcription failed: ${err}`);
+      }
+      console.log(`[CAPTCHA Audio] Solved code="${chosen}" via ${model} in ${Date.now() - t0}ms`);
+      return chosen;
+    }
+
     const code = await run("@cf/openai/whisper-tiny-en");
     if (code.length >= 4 && code.length <= 5) return code;
     const refined = await run("@cf/openai/whisper-large-v3-turbo");
     if (refined.length >= 4 && refined.length <= 5) return refined;
-    return code.length > refined.length ? refined : code; // shorter transcription usually = fewer hallucinations
+    return code.length > refined.length ? refined : code;
   } catch (e: any) {
     if (!ai) throw e;
-    console.warn(`whisper binding failed: ${e.message}, falling back`);
+    console.warn(`whisper binding failed (${Date.now() - t0}ms): ${e.message}, falling back`);
     throw e;
   }
 }

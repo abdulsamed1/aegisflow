@@ -21,3 +21,14 @@ test("parseScanBursts: early-exit bookkeeping preserved", () => {
   // ponytail: verifies P3 — unknown not overwritten when SLOTS found
   assert.strictEqual(parseScanBursts("2"), 2);
 });
+
+test("parseScanBursts: tier-aware clamping for Workers Paid (1..12)", () => {
+  assert.strictEqual(parseScanBursts("1", "paid"), 1);
+  assert.strictEqual(parseScanBursts("6", "paid"), 6);
+  assert.strictEqual(parseScanBursts("12", "paid"), 12);
+  assert.strictEqual(parseScanBursts("20", "paid"), 12); // clamped to 12
+  assert.strictEqual(parseScanBursts("0", "paid"), 1);  // clamped to 1
+  assert.strictEqual(parseScanBursts("8", "workers-paid"), 8);
+  assert.strictEqual(parseScanBursts(undefined, "paid"), 2); // default 2 if undefined
+});
+

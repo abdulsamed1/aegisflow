@@ -25,12 +25,14 @@ export interface Env {
   CAPTCHA_API_KEY?: string;
   ENVIRONMENT?: string;
   SCAN_BURSTS?: string;
+  PLAN_TIER?: string;
 }
 
-// ponytail: one-liner burst clamp — Free tier 50 subrequests/invocation caps bursting to 2 (2*8*3≈48 fetches + D1 stays <50)
-export function parseScanBursts(v?: string): number {
+// ponytail: tier-aware burst clamp — Free tier caps to 2 (<50 subrequests); Workers Paid caps to 12 (D5/FR-4)
+export function parseScanBursts(v?: string, planTier?: string): number {
   const n = parseInt(v ?? "2", 10);
-  return Number.isFinite(n) ? Math.min(2, Math.max(1, n)) : 2;
+  const cap = typeof planTier === "string" && /paid/i.test(planTier) ? 12 : 2;
+  return Number.isFinite(n) ? Math.min(cap, Math.max(1, n)) : 2;
 }
 
 function requireSecret(env: Env): string | null {
@@ -585,7 +587,7 @@ export default {
 
     await Promise.all(jobs.map(async (job) => {
       // ponytail: 2×/min = every 30s coverage; 2*8*660*3 jobs ≈31k/day <200k free (Free cap 50 subrequests/invocation — 6× would exceed)
-      const bursts = parseScanBursts(env.SCAN_BURSTS);
+      const bursts = parseScanBursts(env.SCAN_BURSTS, env.PLAN_TIER);
       let slotResult: Awaited<ReturnType<typeof scanAvailability>> | undefined;
       let unknownResult: Awaited<ReturnType<typeof scanAvailability>> | undefined;
       let totalScanChecks = 0;
