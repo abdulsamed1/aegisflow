@@ -73,3 +73,44 @@ test("captcha audio: solveCaptchaAudio rejects empty input without calling AI", 
   );
   assert.strictEqual(called, false);
 });
+
+test("captcha audio: selects tiny-en when length is 4-5 chars", async () => {
+  const { solveCaptchaAudio } = await import("../src/captcha");
+  const fakeAudio = new Uint8Array([1, 2, 3, 4]);
+  const mockAi = {
+    run: async (model: string) => {
+      if (model.includes("tiny")) return { text: "A, B, C, D." };
+      return { text: "A, B, C, D, E." };
+    }
+  };
+  const code = await solveCaptchaAudio(fakeAudio, mockAi);
+  assert.strictEqual(code, "ABCD");
+});
+
+test("captcha audio: falls back to turbo when tiny-en produces invalid length", async () => {
+  const { solveCaptchaAudio } = await import("../src/captcha");
+  const fakeAudio = new Uint8Array([1, 2, 3, 4]);
+  const mockAi = {
+    run: async (model: string) => {
+      if (model.includes("tiny")) return { text: "A, B" }; // length 2 (invalid)
+      return { text: "K, 7, X, 9, 2" }; // length 5 (valid)
+    }
+  };
+  const code = await solveCaptchaAudio(fakeAudio, mockAi);
+  assert.strictEqual(code, "K7X92");
+});
+
+test("captcha audio: throws when both models fail or produce empty results", async () => {
+  const { solveCaptchaAudio } = await import("../src/captcha");
+  const fakeAudio = new Uint8Array([1, 2, 3, 4]);
+  const mockAi = {
+    run: async () => {
+      return { text: "AB" }; // both < 3 chars
+    }
+  };
+  await assert.rejects(
+    () => solveCaptchaAudio(fakeAudio, mockAi),
+    /Whisper audio transcription failed/
+  );
+});
+
