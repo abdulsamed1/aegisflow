@@ -10,7 +10,7 @@
 ## NFR-2: Cloudflare Free Tier Resource Budgeting
 - Max Browser Time: 600 seconds/day. System monitors cumulative daily execution time and auto-trips at 90% (540s) with operator alert.
 - Browser Concurrency: Maximum 3 concurrent Playwright browser sessions.
-- Launch Throttle: Minimum 20 seconds between browser launches.
+- Launch Throttle: Minimum 20 seconds between browser launches, enforced via module-level sequential FIFO promise queue (`launchGate`) preventing simultaneous launches on parallel job fan-out.
 
 ## NFR-3: Performance & Latency
 - Availability check latency: To beat competing bots, the system employs **Concurrent Multi-Candidate Parallel Fan-Out**. All 8-week horizon scans for all active jobs (up to 24 parallel requests) are dispatched simultaneously via `Promise.all()`.

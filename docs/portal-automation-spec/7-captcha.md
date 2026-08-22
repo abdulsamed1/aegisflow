@@ -11,7 +11,7 @@ BotDetect يعرض **تحدياً صوتياً** على نفس المعالج: `
 
 ## سلسلة الحل المعتمدة (`src/captcha.ts` + `src/browser-fallback.ts`)
 
-1. **الصوت أولاً** — `solveCaptchaAudio(wavBytes, ai)`: whisper-tiny-en ثم large-v3-turbo إذا كان الطول غير منطقي (≠4-5)، عبر binding الإنتاج أو REST المحلي بـ`Content-Type: audio/wav` octet-stream (**ليس** JSON array — يرفضه Whisper بخطأ decode). التحليل عبر `parseAudioTranscription`: تنظيف فواصل + طي التكرارات المتتالية + سقف 6 خانات.
+1. **الصوت أولاً** — `solveCaptchaAudio(wavBytes, ai)`: تشغيل متوازٍ (`Promise.allSettled`) لكل من `@cf/openai/whisper-tiny-en` و`@cf/openai/whisper-large-v3-turbo` عند وجود AI binding لإلغاء تأخير الاستدعاء المتسلسل؛ اختيار النتيجة الصالحة (4-5 خانات) من tiny أولاً ثم turbo؛ إضافة قياس زمني دقيق بالملي ثانية. التحليل عبر `parseAudioTranscription`: تنظيف فواصل + طي التكرارات المتتالية + سقف 6 خانات.
 2. **احتياط الصورة** — `solveCaptcha(screenshotBase64, ai)`: Workers AI `@cf/meta/llama-3.2-11b-vision-instruct` → REST → tesseract.js (PSM 7 + whitelist A-Z0-9).
 3. الفشل → `isCaptchaError` يرصد الرفض ويعيد المحاولة (شبكة أمان).
 
