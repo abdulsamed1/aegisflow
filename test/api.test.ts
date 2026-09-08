@@ -167,7 +167,7 @@ const FULL_PAYLOAD = {
 
 test("API Endpoint: GET /api/status returns operational system metrics", async () => {
   const env = createMockEnv();
-  const req = new Request("https://opran-booking.local/api/status");
+  const req = new Request("https://aegisflow.local/api/status");
   const res = await worker.fetch(req, env, {} as any);
 
   assert.strictEqual(res.status, 200);
@@ -182,13 +182,13 @@ test("API Endpoint: GET /api/status returns operational system metrics", async (
 
 test("API Endpoint: GET /api/clients returns edit-prefill fields (email, phone, passportExpiry)", async () => {
   const env = createMockEnv();
-  await worker.fetch(new Request("https://opran-booking.local/api/clients", {
+  await worker.fetch(new Request("https://aegisflow.local/api/clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(FULL_PAYLOAD)
   }), env, {} as any);
 
-  const res = await worker.fetch(new Request("https://opran-booking.local/api/clients"), env, {} as any);
+  const res = await worker.fetch(new Request("https://aegisflow.local/api/clients"), env, {} as any);
   assert.strictEqual(res.status, 200);
   const clients = await res.json() as any[];
   assert.strictEqual(clients[0].email, "mariam@example.com", "Email must be decrypted for prefill");
@@ -199,7 +199,7 @@ test("API Endpoint: GET /api/clients returns edit-prefill fields (email, phone, 
 test("API Endpoint: POST /api/clients creates encrypted client & candidate job", async () => {
   const env = createMockEnv();
 
-  const req = new Request("https://opran-booking.local/api/clients", {
+  const req = new Request("https://aegisflow.local/api/clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(FULL_PAYLOAD)
@@ -227,7 +227,7 @@ test("API Endpoint: POST /api/clients rejects missing new required field with 40
   const payload = { ...FULL_PAYLOAD };
   delete (payload as any).passportIssuingCountry;
 
-  const req = new Request("https://opran-booking.local/api/clients", {
+  const req = new Request("https://aegisflow.local/api/clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
@@ -242,7 +242,7 @@ test("API Endpoint: POST /api/clients rejects missing new required field with 40
 
 test("API Endpoint: POST /api/clients rejects null body with 400", async () => {
   const env = createMockEnv();
-  const req = new Request("https://opran-booking.local/api/clients", {
+  const req = new Request("https://aegisflow.local/api/clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "null"
@@ -254,7 +254,7 @@ test("API Endpoint: POST /api/clients rejects null body with 400", async () => {
 test("API Endpoint: POST /api/clients rejects non-string field values with 400", async () => {
   const env = createMockEnv();
   const payload = { ...FULL_PAYLOAD, street: 12345 };
-  const req = new Request("https://opran-booking.local/api/clients", {
+  const req = new Request("https://aegisflow.local/api/clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
@@ -267,7 +267,7 @@ test("API Endpoint: POST /api/clients rejects missing original required field wi
   const env = createMockEnv();
   const payload = { ...FULL_PAYLOAD };
   delete (payload as any).firstName;
-  const req = new Request("https://opran-booking.local/api/clients", {
+  const req = new Request("https://aegisflow.local/api/clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
@@ -278,7 +278,7 @@ test("API Endpoint: POST /api/clients rejects missing original required field wi
 
 test("API Endpoint: POST /api/jobs/:id/cancel marks job cancelled and excluded from scanning", async () => {
   const env = createMockEnv();
-  const createReq = new Request("https://opran-booking.local/api/clients", {
+  const createReq = new Request("https://aegisflow.local/api/clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(FULL_PAYLOAD)
@@ -286,7 +286,7 @@ test("API Endpoint: POST /api/jobs/:id/cancel marks job cancelled and excluded f
   const created = await (await worker.fetch(createReq, env, {} as any)).json() as any;
 
   const cancelRes = await worker.fetch(
-    new Request(`https://opran-booking.local/api/jobs/${created.jobId}/cancel`, { method: "POST" }),
+    new Request(`https://aegisflow.local/api/jobs/${created.jobId}/cancel`, { method: "POST" }),
     env,
     {} as any
   );
@@ -302,14 +302,14 @@ test("API Endpoint: POST /api/jobs/:id/cancel marks job cancelled and excluded f
 
 test("API Endpoint: GET / serves interactive Admin Dashboard HTML", async () => {
   const env = createMockEnv();
-  const req = new Request("https://opran-booking.local/");
+  const req = new Request("https://aegisflow.local/");
   const res = await worker.fetch(req, env, {} as any);
 
   assert.strictEqual(res.status, 200);
   assert.strictEqual(res.headers.get("Content-Type"), "text/html; charset=utf-8");
 
   const html = await res.text();
-  assert.ok(html.includes("أوبيران لأتمتة الحجوزات"));
+  assert.ok(html.includes("aegisflow لأتمتة الحجوزات"));
   assert.ok(!html.includes("محرك الفحص السريع"), "Fastpath badge must be removed");
   assert.ok(!html.includes("badge-dryrun"), "DRY-RUN badge removed");
   assert.ok(!html.includes("sysline"), "Footer system line must be removed");
@@ -318,7 +318,7 @@ test("API Endpoint: GET / serves interactive Admin Dashboard HTML", async () => 
 
 test("API Endpoint: admin form has new profile fields and no per-client schedule controls", async () => {
   const env = createMockEnv();
-  const req = new Request("https://opran-booking.local/");
+  const req = new Request("https://aegisflow.local/");
   const res = await worker.fetch(req, env, {} as any);
   const html = await res.text();
 
@@ -339,7 +339,7 @@ test("API Endpoint: admin form has new profile fields and no per-client schedule
 
 test("Dashboard: premium assets are present", async () => {
   const env = createMockEnv();
-  const res = await worker.fetch(new Request("https://opran-booking.local/"), env, {} as any);
+  const res = await worker.fetch(new Request("https://aegisflow.local/"), env, {} as any);
   const html = await res.text();
 
   assert.ok(!html.includes("bootstrap.rtl.min.css"), "Third-party framework CSS must be dropped for custom design system");
@@ -365,7 +365,7 @@ test("Dashboard: premium assets are present", async () => {
 
 test("Dashboard: CRUD affordances wired", async () => {
   const env = createMockEnv();
-  const res = await worker.fetch(new Request("https://opran-booking.local/"), env, {} as any);
+  const res = await worker.fetch(new Request("https://aegisflow.local/"), env, {} as any);
   const html = await res.text();
 
   assert.ok(html.includes("openEditModal"), "Edit mode must be wired to the shared modal");
@@ -380,7 +380,7 @@ test("Dashboard: CRUD affordances wired", async () => {
 
 test("API Endpoint: PUT /api/clients/:id rejects missing field with 400", async () => {
   const env = createMockEnv();
-  const createReq = new Request("https://opran-booking.local/api/clients", {
+  const createReq = new Request("https://aegisflow.local/api/clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(FULL_PAYLOAD)
@@ -390,7 +390,7 @@ test("API Endpoint: PUT /api/clients/:id rejects missing field with 400", async 
   const payload = { ...FULL_PAYLOAD };
   delete (payload as any).city;
   const res = await worker.fetch(
-    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+    new Request(`https://aegisflow.local/api/clients/${created.clientId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
@@ -406,7 +406,7 @@ test("API Endpoint: PUT /api/clients/:id rejects missing field with 400", async 
 test("API Endpoint: PUT /api/clients/:id rejects non-string field with 400", async () => {
   const env = createMockEnv();
   const res = await worker.fetch(
-    new Request("https://opran-booking.local/api/clients/client_x", {
+    new Request("https://aegisflow.local/api/clients/client_x", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...FULL_PAYLOAD, street: 12345 })
@@ -420,7 +420,7 @@ test("API Endpoint: PUT /api/clients/:id rejects non-string field with 400", asy
 test("API Endpoint: PUT /api/clients/:id rejects unknown id with 404", async () => {
   const env = createMockEnv();
   const res = await worker.fetch(
-    new Request("https://opran-booking.local/api/clients/client_unknown", {
+    new Request("https://aegisflow.local/api/clients/client_unknown", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(FULL_PAYLOAD)
@@ -435,7 +435,7 @@ test("API Endpoint: PUT /api/clients/:id rejects unknown id with 404", async () 
 
 test("API Endpoint: PUT /api/clients/:id updates stored row and keeps empty passport ciphertext", async () => {
   const env = createMockEnv();
-  const created = await (await worker.fetch(new Request("https://opran-booking.local/api/clients", {
+  const created = await (await worker.fetch(new Request("https://aegisflow.local/api/clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(FULL_PAYLOAD)
@@ -445,7 +445,7 @@ test("API Endpoint: PUT /api/clients/:id updates stored row and keeps empty pass
   assert.ok(beforePassport, "Store must hold ciphertext after POST");
 
   const res = await worker.fetch(
-    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+    new Request(`https://aegisflow.local/api/clients/${created.clientId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...FULL_PAYLOAD, firstName: "Salma", category: "Bachelor", passportNumber: "" })
@@ -465,7 +465,7 @@ test("API Endpoint: PUT /api/clients/:id updates stored row and keeps empty pass
 test("API Endpoint: DELETE /api/clients/:id rejects unknown id with 404", async () => {
   const env = createMockEnv();
   const res = await worker.fetch(
-    new Request("https://opran-booking.local/api/clients/client_unknown", { method: "DELETE" }),
+    new Request("https://aegisflow.local/api/clients/client_unknown", { method: "DELETE" }),
     env,
     {} as any
   );
@@ -474,7 +474,7 @@ test("API Endpoint: DELETE /api/clients/:id rejects unknown id with 404", async 
 
 test("API Endpoint: DELETE /api/clients/:id protects BOOKED clients with 403", async () => {
   const env = createMockEnv();
-  const created = await (await worker.fetch(new Request("https://opran-booking.local/api/clients", {
+  const created = await (await worker.fetch(new Request("https://aegisflow.local/api/clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(FULL_PAYLOAD)
@@ -483,7 +483,7 @@ test("API Endpoint: DELETE /api/clients/:id protects BOOKED clients with 403", a
   env.__stores.jobs.find((j: any) => j.client_id === created.clientId).status = "BOOKED";
 
   const res = await worker.fetch(
-    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, { method: "DELETE" }),
+    new Request(`https://aegisflow.local/api/clients/${created.clientId}`, { method: "DELETE" }),
     env,
     {} as any
   );
@@ -495,14 +495,14 @@ test("API Endpoint: DELETE /api/clients/:id protects BOOKED clients with 403", a
 
 test("API Endpoint: DELETE /api/clients/:id removes client and writes audit row", async () => {
   const env = createMockEnv();
-  const created = await (await worker.fetch(new Request("https://opran-booking.local/api/clients", {
+  const created = await (await worker.fetch(new Request("https://aegisflow.local/api/clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(FULL_PAYLOAD)
   }), env, {} as any)).json() as any;
 
   const res = await worker.fetch(
-    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, { method: "DELETE" }),
+    new Request(`https://aegisflow.local/api/clients/${created.clientId}`, { method: "DELETE" }),
     env,
     {} as any
   );
@@ -530,7 +530,7 @@ test("API Endpoint: POST /api/clients rejects non-object & malformed JSON bodies
 
   // Test malformed JSON string
   const resMalformed = await worker.fetch(
-    new Request("https://opran-booking.local/api/clients", {
+    new Request("https://aegisflow.local/api/clients", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{ invalid json structure"
@@ -542,7 +542,7 @@ test("API Endpoint: POST /api/clients rejects non-object & malformed JSON bodies
 
   // Test JSON Array body
   const resArray = await worker.fetch(
-    new Request("https://opran-booking.local/api/clients", {
+    new Request("https://aegisflow.local/api/clients", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify([FULL_PAYLOAD])
@@ -554,7 +554,7 @@ test("API Endpoint: POST /api/clients rejects non-object & malformed JSON bodies
 
   // Test primitive string body
   const resPrimitive = await worker.fetch(
-    new Request("https://opran-booking.local/api/clients", {
+    new Request("https://aegisflow.local/api/clients", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify("plain string body")
@@ -573,7 +573,7 @@ test("API Endpoint: POST /api/clients validates each of the 17 required fields i
     const payloadMissing = { ...FULL_PAYLOAD };
     delete (payloadMissing as any)[field];
     const resMissing = await worker.fetch(
-      new Request("https://opran-booking.local/api/clients", {
+      new Request("https://aegisflow.local/api/clients", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payloadMissing)
@@ -587,7 +587,7 @@ test("API Endpoint: POST /api/clients validates each of the 17 required fields i
     // b) Empty string ""
     const payloadEmpty = { ...FULL_PAYLOAD, [field]: "" };
     const resEmpty = await worker.fetch(
-      new Request("https://opran-booking.local/api/clients", {
+      new Request("https://aegisflow.local/api/clients", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payloadEmpty)
@@ -600,7 +600,7 @@ test("API Endpoint: POST /api/clients validates each of the 17 required fields i
     // c) Whitespace-only string "   "
     const payloadSpaces = { ...FULL_PAYLOAD, [field]: "   " };
     const resSpaces = await worker.fetch(
-      new Request("https://opran-booking.local/api/clients", {
+      new Request("https://aegisflow.local/api/clients", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payloadSpaces)
@@ -613,7 +613,7 @@ test("API Endpoint: POST /api/clients validates each of the 17 required fields i
     // d) Non-string type (number 12345)
     const payloadNumber = { ...FULL_PAYLOAD, [field]: 12345 };
     const resNumber = await worker.fetch(
-      new Request("https://opran-booking.local/api/clients", {
+      new Request("https://aegisflow.local/api/clients", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payloadNumber)
@@ -632,7 +632,7 @@ test("API Endpoint: POST /api/clients applies defaults and maps calendarId corre
   delete (payloadBachelor as any).gender;
 
   const res1 = await worker.fetch(
-    new Request("https://opran-booking.local/api/clients", {
+    new Request("https://aegisflow.local/api/clients", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payloadBachelor)
@@ -650,7 +650,7 @@ test("API Endpoint: POST /api/clients applies defaults and maps calendarId corre
   const env2 = createMockEnv();
   const payloadExplicit = { ...FULL_PAYLOAD, category: "Bachelor", gender: "Female", nationality: "Austrian" };
   const res2 = await worker.fetch(
-    new Request("https://opran-booking.local/api/clients", {
+    new Request("https://aegisflow.local/api/clients", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payloadExplicit)
@@ -668,7 +668,7 @@ test("API Endpoint: POST /api/clients applies defaults and maps calendarId corre
 test("API Endpoint: POST /api/clients auto-creates job with correct default scheduling parameters", async () => {
   const env = createMockEnv();
   const res = await worker.fetch(
-    new Request("https://opran-booking.local/api/clients", {
+    new Request("https://aegisflow.local/api/clients", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(FULL_PAYLOAD)
@@ -695,7 +695,7 @@ test("API Endpoint: PUT /api/clients/:id rejects non-object & malformed JSON bod
   const env = createMockEnv();
 
   const resMalformed = await worker.fetch(
-    new Request("https://opran-booking.local/api/clients/client_123", {
+    new Request("https://aegisflow.local/api/clients/client_123", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: "not json"
@@ -711,7 +711,7 @@ test("API Endpoint: PUT /api/clients/:id passportNumber special rule (empty keep
 
   // Create initial client
   const created = await (await worker.fetch(
-    new Request("https://opran-booking.local/api/clients", {
+    new Request("https://aegisflow.local/api/clients", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(FULL_PAYLOAD)
@@ -724,7 +724,7 @@ test("API Endpoint: PUT /api/clients/:id passportNumber special rule (empty keep
 
   // a) Empty string passportNumber "" -> Allowed! Keeps existing ciphertext
   const resEmptyPassport = await worker.fetch(
-    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+    new Request(`https://aegisflow.local/api/clients/${created.clientId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...FULL_PAYLOAD, passportNumber: "" })
@@ -736,7 +736,7 @@ test("API Endpoint: PUT /api/clients/:id passportNumber special rule (empty keep
 
   // b) Whitespace string passportNumber "   " -> Allowed! Keeps existing ciphertext
   const resSpacesPassport = await worker.fetch(
-    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+    new Request(`https://aegisflow.local/api/clients/${created.clientId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...FULL_PAYLOAD, passportNumber: "   " })
@@ -750,7 +750,7 @@ test("API Endpoint: PUT /api/clients/:id passportNumber special rule (empty keep
   const payloadNoPassport = { ...FULL_PAYLOAD };
   delete (payloadNoPassport as any).passportNumber;
   const resMissingPassport = await worker.fetch(
-    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+    new Request(`https://aegisflow.local/api/clients/${created.clientId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payloadNoPassport)
@@ -762,7 +762,7 @@ test("API Endpoint: PUT /api/clients/:id passportNumber special rule (empty keep
 
   // d) Non-string passportNumber (number 99999) -> Rejected with 400
   const resNumberPassport = await worker.fetch(
-    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+    new Request(`https://aegisflow.local/api/clients/${created.clientId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...FULL_PAYLOAD, passportNumber: 99999 })
@@ -779,7 +779,7 @@ test("API Endpoint: PUT /api/clients/:id validates the other 16 required fields 
   for (const field of other16Fields) {
     const env = createMockEnv();
     const created = await (await worker.fetch(
-      new Request("https://opran-booking.local/api/clients", {
+      new Request("https://aegisflow.local/api/clients", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(FULL_PAYLOAD)
@@ -791,7 +791,7 @@ test("API Endpoint: PUT /api/clients/:id validates the other 16 required fields 
     const payloadMissing = { ...FULL_PAYLOAD };
     delete (payloadMissing as any)[field];
     const resMissing = await worker.fetch(
-      new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+      new Request(`https://aegisflow.local/api/clients/${created.clientId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payloadMissing)
@@ -804,7 +804,7 @@ test("API Endpoint: PUT /api/clients/:id validates the other 16 required fields 
     // b) Empty string
     const payloadEmpty = { ...FULL_PAYLOAD, [field]: "" };
     const resEmpty = await worker.fetch(
-      new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+      new Request(`https://aegisflow.local/api/clients/${created.clientId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payloadEmpty)
@@ -816,7 +816,7 @@ test("API Endpoint: PUT /api/clients/:id validates the other 16 required fields 
     // c) Whitespace string
     const payloadSpaces = { ...FULL_PAYLOAD, [field]: "  " };
     const resSpaces = await worker.fetch(
-      new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+      new Request(`https://aegisflow.local/api/clients/${created.clientId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payloadSpaces)
@@ -828,7 +828,7 @@ test("API Endpoint: PUT /api/clients/:id validates the other 16 required fields 
     // d) Non-string type
     const payloadNum = { ...FULL_PAYLOAD, [field]: 888 };
     const resNum = await worker.fetch(
-      new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+      new Request(`https://aegisflow.local/api/clients/${created.clientId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payloadNum)
@@ -843,7 +843,7 @@ test("API Endpoint: PUT /api/clients/:id validates the other 16 required fields 
 test("API Endpoint: DELETE /api/clients/:id detaches audit log FK references before removing client", async () => {
   const env = createMockEnv();
   const created = await (await worker.fetch(
-    new Request("https://opran-booking.local/api/clients", {
+    new Request("https://aegisflow.local/api/clients", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(FULL_PAYLOAD)
@@ -860,7 +860,7 @@ test("API Endpoint: DELETE /api/clients/:id detaches audit log FK references bef
   });
 
   const res = await worker.fetch(
-    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, { method: "DELETE" }),
+    new Request(`https://aegisflow.local/api/clients/${created.clientId}`, { method: "DELETE" }),
     env, {} as any
   );
   assert.strictEqual(res.status, 200);
@@ -876,7 +876,7 @@ test("API Endpoint: DELETE /api/clients/:id detaches audit log FK references bef
 test("API Endpoint: GET /api/clients returns correctly decrypted PII fields and masked passport", async () => {
   const env = createMockEnv();
   await worker.fetch(
-    new Request("https://opran-booking.local/api/clients", {
+    new Request("https://aegisflow.local/api/clients", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(FULL_PAYLOAD)
@@ -884,7 +884,7 @@ test("API Endpoint: GET /api/clients returns correctly decrypted PII fields and 
     env, {} as any
   );
 
-  const res = await worker.fetch(new Request("https://opran-booking.local/api/clients"), env, {} as any);
+  const res = await worker.fetch(new Request("https://aegisflow.local/api/clients"), env, {} as any);
   assert.strictEqual(res.status, 200);
 
   const list = await res.json() as any[];
@@ -917,7 +917,7 @@ test("API Endpoint: GET /api/clients returns correctly decrypted PII fields and 
 // 5. Static UI Verification - Match getAdminHTML DOM IDs with requiredFields & payload keys
 test("Static UI Verification: getAdminHTML DOM IDs match requiredFields and add-client-form payload keys", async () => {
   const env = createMockEnv();
-  const res = await worker.fetch(new Request("https://opran-booking.local/"), env, {} as any);
+  const res = await worker.fetch(new Request("https://aegisflow.local/"), env, {} as any);
   const html = await res.text();
 
   // 1. Verify every field in ALL_REQUIRED_FIELDS exists as a DOM element with id="<field>"
@@ -943,7 +943,7 @@ test("API Endpoint: POST & PUT /api/clients reject invalid category with 400 Bad
 
   // POST with invalid category
   const resPost = await worker.fetch(
-    new Request("https://opran-booking.local/api/clients", {
+    new Request("https://aegisflow.local/api/clients", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...FULL_PAYLOAD, category: "Tourist_Visa" })
@@ -956,7 +956,7 @@ test("API Endpoint: POST & PUT /api/clients reject invalid category with 400 Bad
 
   // POST with Master_PhD (rejected in Bachelor-only MVP)
   const resPostMaster = await worker.fetch(
-    new Request("https://opran-booking.local/api/clients", {
+    new Request("https://aegisflow.local/api/clients", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...FULL_PAYLOAD, category: "Master_PhD" })
@@ -968,7 +968,7 @@ test("API Endpoint: POST & PUT /api/clients reject invalid category with 400 Bad
 
   // Create valid client
   const created = await (await worker.fetch(
-    new Request("https://opran-booking.local/api/clients", {
+    new Request("https://aegisflow.local/api/clients", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(FULL_PAYLOAD)
@@ -978,7 +978,7 @@ test("API Endpoint: POST & PUT /api/clients reject invalid category with 400 Bad
 
   // PUT with invalid category
   const resPut = await worker.fetch(
-    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+    new Request(`https://aegisflow.local/api/clients/${created.clientId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...FULL_PAYLOAD, category: "Work_Permit" })
@@ -991,7 +991,7 @@ test("API Endpoint: POST & PUT /api/clients reject invalid category with 400 Bad
 
   // PUT with Master_PhD (rejected in Bachelor-only MVP)
   const resPutMaster = await worker.fetch(
-    new Request(`https://opran-booking.local/api/clients/${created.clientId}`, {
+    new Request(`https://aegisflow.local/api/clients/${created.clientId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...FULL_PAYLOAD, category: "Master_PhD" })
@@ -1086,7 +1086,7 @@ test("Booking Engine Utility: parseBookingConfirmationReference extracts referen
 
 test("API Security: Unauthenticated request to protected endpoint returns 401 Unauthorized", async () => {
   const env = createMockEnv();
-  const req = new Request("https://opran-booking.local/api/status", {
+  const req = new Request("https://aegisflow.local/api/status", {
     headers: { "X-Skip-Auth": "true" } // Prevents the monkey-patch from injecting the token
   });
   const res = await worker.fetch(req, env, {} as any);
@@ -1097,7 +1097,7 @@ test("API Security: Missing ADMIN_API_KEY in production returns 500", async () =
   const env = createMockEnv();
   env.ENVIRONMENT = "production";
   delete env.ADMIN_API_KEY;
-  const req = new Request("https://opran-booking.local/api/status", {
+  const req = new Request("https://aegisflow.local/api/status", {
     headers: { "X-Skip-Auth": "true" }
   });
   const res = await worker.fetch(req, env, {} as any);
@@ -1106,7 +1106,7 @@ test("API Security: Missing ADMIN_API_KEY in production returns 500", async () =
 
 test("API Security: Authenticated request via Bearer token", async () => {
   const env = createMockEnv();
-  const req = new Request("https://opran-booking.local/api/status", {
+  const req = new Request("https://aegisflow.local/api/status", {
     headers: { "Authorization": "Bearer test-admin-key", "X-Skip-Auth": "true" }
   });
   const res = await worker.fetch(req, env, {} as any);
@@ -1115,7 +1115,7 @@ test("API Security: Authenticated request via Bearer token", async () => {
 
 test("API Security: Authenticated request via X-API-Key header", async () => {
   const env = createMockEnv();
-  const req = new Request("https://opran-booking.local/api/status", {
+  const req = new Request("https://aegisflow.local/api/status", {
     headers: { "X-API-Key": "test-admin-key", "X-Skip-Auth": "true" }
   });
   const res = await worker.fetch(req, env, {} as any);
@@ -1125,7 +1125,7 @@ test("API Security: Authenticated request via X-API-Key header", async () => {
 test("API Security: Authenticated request via Basic Auth", async () => {
   const env = createMockEnv();
   const basicAuth = btoa("admin:test-admin-key");
-  const req = new Request("https://opran-booking.local/api/status", {
+  const req = new Request("https://aegisflow.local/api/status", {
     headers: { "Authorization": `Basic ${basicAuth}`, "X-Skip-Auth": "true" }
   });
   const res = await worker.fetch(req, env, {} as any);
@@ -1136,7 +1136,7 @@ test("API Validation: POST /api/clients rejects missing nationality field with 4
   const env = createMockEnv();
   const { nationality, ...withoutNationality } = FULL_PAYLOAD;
   const res = await worker.fetch(
-    new Request("https://opran-booking.local/api/clients", {
+    new Request("https://aegisflow.local/api/clients", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(withoutNationality)
@@ -1228,7 +1228,7 @@ test("Portal Field Names: buildStep3DetailsPayload uses exact verified portal na
   };
   const payload = buildStep3DetailsPayload(client, "TEST");
   const params = new URLSearchParams(payload);
-  
+
   // Verified portal field names — must be exact case-sensitive match
   const verifiedNames = [
     "Lastname", "Firstname", "DateOfBirth", "TraveldocumentNumber", "Sex",
@@ -1241,7 +1241,7 @@ test("Portal Field Names: buildStep3DetailsPayload uses exact verified portal na
   for (const name of verifiedNames) {
     assert.ok(params.has(name), `Portal field "${name}" must be present in payload`);
   }
-  
+
   // Regression: these FABRICATED names must NOT appear
   const fabricated = ["LastName", "FirstName", "DOB", "PassportNumber", "Gender", "PostalCode", "Phone"];
   for (const name of fabricated) {
@@ -1251,7 +1251,7 @@ test("Portal Field Names: buildStep3DetailsPayload uses exact verified portal na
 
 test("Panel Field Completeness: admin HTML contains all 19 static client input fields", async () => {
   const env = createMockEnv();
-  const res = await worker.fetch(new Request("https://opran-booking.local/"), env, {} as any);
+  const res = await worker.fetch(new Request("https://aegisflow.local/"), env, {} as any);
   const html = await res.text();
   const requiredInputIds = [
     "firstName", "lastName", "familyNameAtBirth", "placeOfBirth", "countryOfBirth",

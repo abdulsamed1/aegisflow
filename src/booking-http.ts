@@ -40,11 +40,16 @@ export interface HttpBookingResult {
   responseLength?: number;
 }
 
+import { CANONICAL_CALENDAR_ID } from "./pre-submit-gate";
+
 /**
  * Pre-serialize the VERIFIED discovery payload only.
  * Booking form fields and submit endpoint are UNVERIFIED (G0) and must not be invented.
  */
 export function buildPreSerializedPayload(client: DecryptedClientData, mondayDateString: string): string {
+  if (client.category !== "Bachelor" || client.calendarId !== CANONICAL_CALENDAR_ID) {
+    throw new Error(`Bachelor category and canonical calendar ID (${CANONICAL_CALENDAR_ID}) required. Got category="${client.category}", calendarId=${client.calendarId}`);
+  }
   const params = new URLSearchParams();
   params.append("Language", "en");
   params.append("Office", "KAIRO");
@@ -172,6 +177,9 @@ export function buildStep3DetailsPayload(
   timeSlot?: string,
   hidden?: { token?: string; startTime?: string; bdc?: { vcid: string; hs: string; sp: string; bw: string } }
 ): string {
+  if (client.category !== "Bachelor" || client.calendarId !== CANONICAL_CALENDAR_ID) {
+    throw new Error(`Bachelor category and canonical calendar ID (${CANONICAL_CALENDAR_ID}) required. Got category="${client.category}", calendarId=${client.calendarId}`);
+  }
   const params = new URLSearchParams();
   params.append("Language", "en");
   params.append("Office", "KAIRO");

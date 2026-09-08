@@ -1,8 +1,8 @@
-# Technical Architecture Specification — BMEIA Appointment Automation (opran-booking)
+# Technical Architecture Specification — BMEIA Appointment Automation (aegisflow)
 
 ## Table of Contents
 
-- [Technical Architecture Specification — BMEIA Appointment Automation (opran-booking)](#table-of-contents)
+- [Technical Architecture Specification — BMEIA Appointment Automation (aegisflow)](#table-of-contents)
   - [1. System Topology Architecture](./1-system-topology-architecture.md)
   - [2. Architectural Invariants (AD-1 to AD-11)](./2-architectural-invariants-ad-1-to-ad-11.md)
   - [3. Database Schema (Cloudflare D1)](./3-database-schema-cloudflare-d1.md)
