@@ -454,6 +454,50 @@ test("Dashboard: toast stack for action feedback", async () => {
   assert.ok(html.includes("function toast("), "Dashboard JS must define toast()");
 });
 
+test("API Endpoint: GET /api/clients isolates undecryptable rows instead of 500", async () => {
+  // Regression (prod 2026-09-08): one row encrypted under a non-matching key made
+  // decryptPII throw inside Promise.all -> catch -> 500 -> empty ledger every 10s.
+  const { encryptPII } = await import("../src/crypto");
+  const env = createMockEnv();
+  const stores = (env as any).__stores;
+  const badCipher = await encryptPII("A00000000", "a-different-32-char-secret-key!!");
+  stores.clients.push({
+    id: "client_broken", first_name_enc: badCipher, last_name_enc: badCipher,
+    gender: "Male", dob: "1990-01-01", nationality: "Egyptian",
+    passport_number_enc: badCipher, passport_expiry: "2030-01-01",
+    email_enc: badCipher, phone_enc: badCipher, family_name_at_birth_enc: badCipher,
+    place_of_birth: "Cairo", country_of_birth: "Egypt", nationality_at_birth: "Egyptian",
+    address_street_enc: badCipher, address_postal_code_enc: badCipher, address_city_enc: badCipher,
+    passport_issue_date: "2020-01-01", passport_issuing_country: "Egypt",
+    category: "Bachelor", calendar_id: 44281520, status: "READY", created_at: new Date().toISOString(),
+  });
+  const res = await worker.fetch(new Request("https://aegisflow.local/api/clients"), env, {} as any);
+  assert.strictEqual(res.status, 200);
+  const body = await res.json() as any[];
+  assert.ok(Array.isArray(body), "Ledger must stay an array even with a corrupt row");
+  const broken = body.find((c: any) => c.id === "client_broken");
+  assert.ok(broken && broken.decryptError === true, "Corrupt row must be flagged, not fatal");
+  assert.strictEqual(broken.maskedPassport, "****");
+});
+
+test("API Endpoint: GET /api/logs honors limit param with a hard cap", async () => {
+  const env = createMockEnv();
+  const stores = (env as any).__stores;
+  for (let i = 0; i < 5; i++) stores.logs.push({ id: i, event_type: "NO_APPOINTMENT", created_at: "2026-09-08 08:0" + i + ":00" });
+  const res = await worker.fetch(new Request("https://aegisflow.local/api/logs?limit=2"), env, {} as any);
+  assert.strictEqual(res.status, 200);
+  const body = await res.json() as any[];
+  assert.strictEqual(body.length, 2, "limit param must bound the ledger payload");
+});
+
+test("Dashboard: audit viewer defaults to signal-only", async () => {
+  const env = createMockEnv();
+  const res = await worker.fetch(new Request("https://aegisflow.local/"), env, {} as any);
+  const html = await res.text();
+  assert.ok(html.includes('value="signal"'), "Audit filter must offer a signal-only default");
+  assert.ok(html.includes("/api/logs?limit=200"), "Viewer must pull a deeper window for signal filtering");
+});
+
 test("Dashboard: CRUD affordances wired", async () => {
   const env = createMockEnv();
   const res = await worker.fetch(new Request("https://aegisflow.local/"), env, {} as any);
