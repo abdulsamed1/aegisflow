@@ -1,6 +1,6 @@
 import { scanAvailability, getSessionCookie } from "./scanner";
 import { getCairoTimeInfo, getCairoDateString, rollingMondays, SCHEDULER_PICK_QUERY } from "./scheduler";
-import { aggregateDailyReport, filterRowsByCairoDay, summarizePriorCairoDays } from "./daily-report";
+import { aggregateDailyReport, filterRowsByCairoDay, summarizePriorCairoDays, formatBadgeAndMessage } from "./daily-report";
 import { sendTelegramNotification } from "./telegram";
 import { JobLockDO } from "./lock";
 import { encryptPII, decryptPII, maskPassport } from "./crypto";
@@ -164,6 +164,19 @@ export default {
 
         const isTripped = isCircuitBreakerTripped(metricsToday.total_browser_seconds || 0.0);
 
+        // ponytail: last-5 booking failures for the health tile — one bounded
+        // query, no aggregation, no per-row Intl (client formats the clock).
+        const { results: failureResults } = await env.DB.prepare(
+          "SELECT job_id, client_id, event_type, details, created_at FROM audit_logs WHERE event_type IN ('BOOKING_FAILED','SLOT_GONE_PRE_LAUNCH','PRE_SUBMIT_BLOCKED','BOOKING_RETRY') ORDER BY created_at DESC LIMIT 5"
+        ).all<any>();
+        const recentFailures = (failureResults || []).slice(0, 5).map((r: any) => {
+          let details: Record<string, any> = {};
+          try { details = JSON.parse(r.details || "{}"); } catch { details = {}; }
+          const week = details.week || details.matchedMonday || "";
+          const { badge, message } = formatBadgeAndMessage(r.event_type, details, week, typeof details.attempt === "number" ? details.attempt : undefined);
+          return { job_id: r.job_id, client_id: r.client_id, event_type: r.event_type, badge, message, created_at: r.created_at };
+        });
+
         return new Response(
           JSON.stringify({
             status: isTripped ? "CIRCUIT_BREAKER_TRIPPED" : "operational",
@@ -171,7 +184,8 @@ export default {
             circuitBreakerTripped: isTripped,
             cairoTime: cairo,
             activeJobs: activeJobsCount?.count || 0,
-            metricsToday
+            metricsToday,
+            recentFailures
           }),
           { headers: { "Content-Type": "application/json", ...corsHeaders } }
         );
@@ -1022,12 +1036,6 @@ function getAdminHTML(): string {
     }
     .container { max-width: 1400px; margin: 0 auto; position: relative; z-index: 2; }
 
-    header {
-      display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
-      padding: 18px 22px; background: var(--bg-card); border: 1px solid var(--border);
-      border-radius: var(--radius-card); margin-bottom: 22px;
-    }
-
     /* ---- metric cards ---- */
     .grid-metrics {
       display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -1201,7 +1209,6 @@ function getAdminHTML(): string {
     }
     @media (max-width: 768px) {
       body { padding: 12px; }
-      .header { flex-direction: column; align-items: stretch; gap: 12px; }
       .btn { min-height: 44px; }
       .grid-metrics { grid-template-columns: repeat(2, 1fr); gap: 10px; }
       .metric-card { padding: 14px; }
@@ -1209,6 +1216,7 @@ function getAdminHTML(): string {
       .metric-val { font-size: 22px; }
       .form-grid { grid-template-columns: 1fr; }
       .row-actions { flex-wrap: wrap; }
+      .pill-btn { min-height: 44px; }
     }
     /* ---- bento ledger surface (v7): modular tiles, same dossier tokens ----
        No shadows, no decorative gradients, no glow — separation is hairlines
@@ -1220,9 +1228,6 @@ function getAdminHTML(): string {
     .bento { display: grid; grid-template-columns: 7fr 5fr; gap: 0 16px; align-items: start; margin-bottom: 22px; }
     .bento > .table-card { margin-bottom: 0; min-width: 0; }
     #daily-report-card { position: relative; overflow: hidden; border-top: 3px solid var(--primary); } /* stamp rule, solid ink */
-    .masthead-title { font-size: 19px; font-weight: 800; letter-spacing: -0.02em; }
-    .masthead-sub { font-size: 12px; color: var(--text-muted); }
-    .masthead-actions { display: flex; gap: 8px; }
     /* ---- toasts: paper slips pinned to the corner ---- */
     #toasts { position: fixed; bottom: 20px; inset-inline-start: 20px; z-index: 200; display: flex; flex-direction: column; gap: 8px; max-width: min(360px, 90vw); }
     .toast { background: var(--bg-raised); border: 1px solid var(--border-strong); border-inline-start: 3px solid var(--primary); border-radius: var(--radius-control); padding: 10px 14px; font-size: 13px; display: flex; gap: 10px; align-items: center; animation: rise 0.2s ease both; }
@@ -1233,6 +1238,15 @@ function getAdminHTML(): string {
     .audit-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .audit-controls .form-select, .audit-controls .form-control { width: auto; }
     #audit-card tbody td.mono-time { font-family: var(--font-mono); direction: ltr; font-size: 12px; white-space: nowrap; }
+    #audit-card thead th { position: sticky; top: 0; background: var(--bg-card); z-index: 1; }
+    /* ---- folio numerals: dossier stamp numbering per tile ---- */
+    .folio { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); margin-inline-end: 6px; }
+    /* ---- filter pills ---- */
+    .pill-btn { font-family: 'Alexandria', sans-serif; font-size: 12px; font-weight: 700; padding: 6px 12px; border-radius: 999px; border: 1.5px solid var(--border-strong); background: transparent; color: var(--text-muted); cursor: pointer; min-height: 32px; }
+    .pill-btn[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--bg-card); }
+    /* ---- budget ledger bar (thin progress, never a dial) ---- */
+    .budget-bar { height: 8px; border-radius: 999px; background: rgba(35,32,26,0.10); overflow: hidden; margin-top: 10px; }
+    .budget-fill { height: 100%; width: 100%; background: var(--primary); transform-origin: right; transform: scaleX(0); }
     @media (max-width: 1100px) {
       .bento { grid-template-columns: 1fr; gap: 22px; }
     }
@@ -1246,17 +1260,6 @@ function getAdminHTML(): string {
 </head>
 <body>
   <div class="container">
-    <header class="header">
-      <div>
-        <div class="eyebrow">ملف القضية · Africa/Cairo</div>
-        <div class="masthead-title">دفتر حجوزات aegisflow</div>
-        <div class="masthead-sub">اليوم: <span id="masthead-date">—</span> · نافذة الفحص 07:00 – 18:00</div>
-      </div>
-      <div class="masthead-actions">
-        <button class="btn btn-outline-light" id="logout-btn" type="button" onclick="logout()">تسجيل الخروج</button>
-        <button class="btn btn-primary" onclick="openModal()">+ إضافة مرشح جديد</button>
-      </div>
-    </header>
 
     <div class="grid-metrics">
       <div class="metric-card featured">
@@ -1271,12 +1274,18 @@ function getAdminHTML(): string {
         <div class="metric-label">الحجوزات الناجحة</div>
         <div class="metric-val mono" style="color: var(--success);" id="val-booked">0</div>
       </div>
+      <div class="metric-card">
+        <div class="metric-label">ميزانية المتصفح اليوم</div>
+        <div class="metric-val mono" id="budget-text" style="font-size:22px;">— / 600s</div>
+        <div class="budget-bar" role="img" aria-label="استهلاك ميزانية المتصفح اليومية"><div class="budget-fill" id="budget-fill"></div></div>
+        <div id="budget-state" style="font-size:11px; color:var(--text-muted); margin-top:6px;">—</div>
+      </div>
     </div>
 
     <!-- Daily Report — Paper Dossier: Cairo-day dedup, Arabic-first disclosure -->
     <section class="table-card" id="daily-report-card" aria-labelledby="daily-report-title">
       <div class="table-header" style="flex-wrap:wrap; gap:12px;">
-        <div><div class="eyebrow">تقرير القاهرة اليومي</div><h2 id="daily-report-title">التقرير اليومي — المواعيد المرصودة</h2></div>
+        <div><div class="eyebrow"><span class="folio">٠١</span>تقرير القاهرة اليومي</div><h2 id="daily-report-title">التقرير اليومي — المواعيد المرصودة</h2></div>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <label for="report-date" style="font-size:12px; font-weight:700; color:var(--text-muted);">اليوم (القاهرة)</label>
           <input id="report-date" class="form-control" type="date" style="width:auto; min-width:170px;" aria-label="اختر يوم التقرير بتوقيت القاهرة">
@@ -1313,35 +1322,6 @@ function getAdminHTML(): string {
           </div>
         </div>
         <div id="rep-missed-details" role="status" aria-live="polite" style="font-size:13px; color:var(--text-muted); min-height:22px; margin-bottom:18px;"></div>
-
-        <!-- Chronological Audit Timeline -->
-        <div style="margin-top: 14px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
-            <h3 style="font-size:14px; font-weight:700; margin:0;">الجدول الزمني للعمليات (التسلسل الزمني ليوم القاهرة المحدد)</h3>
-            <span style="font-size:11px; color:var(--text-dim);">دقة على مستوى الأسبوع · مصدر الحقيقة audit_logs</span>
-          </div>
-          <div id="timeline-disclaimer" style="display:none; font-size:11.5px; color:var(--text-dim); background:rgba(217,138,92,0.08); border:1px solid rgba(217,138,92,0.25); border-radius:6px; padding:8px 12px; margin-bottom:10px;">
-            ℹ <strong>ملاحظة للمشغل:</strong> تظهر بعض السجلات القديمة المنشأة قبل التحديث بدون معرّف ارتباط أو تصنيف تفصيلي — يتم عرض البيانات المتوفرة مع تمييزها كسجلات تاريخية.
-          </div>
-          <div class="table-wrap" style="max-height: 380px; overflow-y: auto;">
-            <table>
-              <thead>
-                <tr>
-                  <th style="width:110px;">الوقت (القاهرة)</th>
-                  <th style="width:140px;">الحدث</th>
-                  <th style="width:110px;">الأسبوع</th>
-                  <th style="width:75px;">المحاولة</th>
-                  <th>التفاصيل والرسالة</th>
-                  <th style="width:130px;">معرّف الارتباط</th>
-                </tr>
-              </thead>
-              <tbody id="timeline-rows">
-                <tr><td colspan="6" style="text-align:center; color:var(--text-dim); padding:20px;">جاري تحميل الجدول الزمني...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
         <!-- Multi-Day Cairo History -->
         <div style="margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border-subtle);">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
@@ -1372,9 +1352,24 @@ function getAdminHTML(): string {
 
     <div class="bento">
     <section class="table-card" aria-labelledby="clients-title">
-      <div class="table-header">
-        <div><div class="eyebrow">سجل المرشحين</div><h2 id="clients-title">قائمة مرشحي الحجز</h2></div>
-        <span class="livetag" style="margin:0;"><span class="dot"></span><span class="txt">تحديث تلقائي 10 ثوانٍ</span></span>
+      <div class="table-header" style="flex-wrap:wrap; gap:12px;">
+        <div><div class="eyebrow"><span class="folio">٠٢</span>سجل المرشحين</div><h2 id="clients-title">قائمة مرشحي الحجز</h2></div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <span class="livetag" style="margin:0;"><span class="dot"></span><span class="txt">تحديث تلقائي 10 ثوانٍ</span></span>
+          <button class="btn btn-outline-light btn-sm" id="logout-btn" type="button" onclick="logout()">تسجيل الخروج</button>
+          <button class="btn btn-primary btn-sm" id="add-client-btn" type="button" onclick="openModal()">+ إضافة مرشح جديد</button>
+        </div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:12px 22px; border-bottom:1px solid var(--border);">
+        <input id="client-search" class="form-control" type="search" placeholder="بحث بالاسم أو الجواز…" aria-label="بحث في المرشحين" style="max-width:220px;">
+        <div id="client-pills" role="group" aria-label="تصفية حسب حالة المهمة" style="display:flex; gap:6px; flex-wrap:wrap;">
+          <button type="button" class="pill-btn" data-status="" aria-pressed="true">الكل</button>
+          <button type="button" class="pill-btn" data-status="active" aria-pressed="false">نشط</button>
+          <button type="button" class="pill-btn" data-status="paused" aria-pressed="false">متوقف</button>
+          <button type="button" class="pill-btn" data-status="booked" aria-pressed="false">محجوز</button>
+          <button type="button" class="pill-btn" data-status="cancelled" aria-pressed="false">ملغي</button>
+        </div>
+        <span id="client-count" class="mono" style="margin-inline-start:auto; font-size:12px; color:var(--text-muted);"></span>
       </div>
       <div class="table-wrap">
         <table>
@@ -1398,7 +1393,7 @@ function getAdminHTML(): string {
 
     <section class="table-card" id="audit-card" aria-labelledby="audit-title">
       <div class="table-header" style="flex-wrap:wrap; gap:12px;">
-        <div><div class="eyebrow">سجل النظام</div><h2 id="audit-title">أحداث التدقيق المباشرة</h2></div>
+        <div><div class="eyebrow"><span class="folio">٠٣</span>سجل النظام</div><h2 id="audit-title">أحداث التدقيق المباشرة</h2></div>
         <div class="audit-controls">
           <select id="audit-type" class="form-select" aria-label="تصفية حسب نوع الحدث"><option value="signal" selected>الأحداث المهمة فقط</option><option value="">كل الأحداث</option></select>
           <input id="audit-search" class="form-control" type="search" placeholder="بحث…" aria-label="بحث في السجل" style="max-width:150px;">
@@ -1421,6 +1416,28 @@ function getAdminHTML(): string {
       </div>
     </section>
     </div>
+
+    <section class="table-card" aria-labelledby="health-title">
+      <div class="table-header">
+        <div><div class="eyebrow"><span class="folio">٠٤</span>صحة الحجز · Africa/Cairo</div><h2 id="health-title">أعطال الحجز الأخيرة</h2></div>
+        <span class="livetag" style="margin:0;"><span class="dot"></span>آخر 5 أحداث فاشلة</span>
+      </div>
+      <div class="table-wrap">
+        <table style="min-width:520px;">
+          <thead>
+            <tr>
+              <th style="width:90px;">الوقت</th>
+              <th style="width:150px;">الحدث</th>
+              <th>السبب</th>
+              <th style="width:110px;">المهمة</th>
+            </tr>
+          </thead>
+          <tbody id="health-rows">
+            <tr><td colspan="4" style="text-align:center; color:var(--text-dim); padding:20px;">جاري تحميل الأعطال...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
   </div>
 
@@ -1669,10 +1686,11 @@ function getAdminHTML(): string {
       x.onclick = function() { el.remove(); };
       el.appendChild(span);
       el.appendChild(x);
+      // ponytail: single visible slip — a new toast replaces the old one (ux-feedback).
+      while (box.firstChild) box.firstChild.remove();
       box.appendChild(el);
-      while (box.children.length > 4) box.firstChild.remove();
       if (dedupeKey) { lastToastKey = dedupeKey; lastToastEl = el; }
-      setTimeout(function() { el.remove(); }, 4000);
+      setTimeout(function() { el.remove(); }, 3000);
     }
 
     // ponytail: surface the server's own error message (500 bodies name the cause —
@@ -1754,14 +1772,56 @@ function getAdminHTML(): string {
 
         const clients = await fetchJSON('/api/clients');
         window.__clients = clients;
-        const tbody = document.getElementById('client-rows');
-        
-        if (clients.length === 0) {
+        renderClients();
+        renderBudget(data.metricsToday, data.circuitBreakerTripped);
+        renderHealth(data.recentFailures || []);
+      } catch (err) {
+        console.error('Failed to load dashboard:', err);
+        toast('تعذر تحديث اللوحة: ' + (err && err.message ? err.message : err), 'error', 'dash');
+        var failBody = document.getElementById('client-rows');
+        if (failBody) failBody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:24px;"><div class="empty-state" style="padding:12px;"><div class="t">تعذر تحميل المرشحين</div><div class="d">' + escapeHtml(err && err.message ? err.message : err) + '</div><button class="btn btn-outline-light btn-sm" onclick="loadDashboard()">إعادة المحاولة</button></div></td></tr>';
+      }
+    }
+
+    window.__clientFilter = window.__clientFilter || { q: '', status: '' };
+    function clientStatus(c) {
+      if (c.status === 'CANCELLED') return 'cancelled';
+      if (c.status === 'BOOKED') return 'booked';
+      return c.jobEnabled ? 'active' : 'paused';
+    }
+    function clearClientFilter() {
+      window.__clientFilter = { q: '', status: '' };
+      var s = document.getElementById('client-search');
+      if (s) s.value = '';
+      var pills = document.querySelectorAll('#client-pills .pill-btn');
+      pills.forEach(function(p) { p.setAttribute('aria-pressed', p.getAttribute('data-status') === '' ? 'true' : 'false'); });
+      renderClients();
+    }
+    function renderClients() {
+      var clients = window.__clients || [];
+      var f = window.__clientFilter;
+      var q = (f.q || '').trim();
+      var list = clients.filter(function(c) {
+        if (f.status && clientStatus(c) !== f.status) return false;
+        if (q) {
+          var hay = ((c.firstName || '') + ' ' + (c.lastName || '') + ' ' + (c.maskedPassport || '') + ' ' + (c.category || ''));
+          if (hay.indexOf(q) === -1) return false;
+        }
+        return true;
+      });
+      var count = document.getElementById('client-count');
+      if (count) count.textContent = 'عرض ' + list.length + ' من ' + clients.length;
+      var tbody = document.getElementById('client-rows');
+      if (!clients.length) {
           tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="icon">📋</div><div style="font-weight: 700;">لا يوجد مرشحون بعد</div><div style="color: var(--text-muted); font-size: 13px; margin: 6px 0 16px;">أضف أول مرشح ليبدأ النظام بالفحص في نافذة 07:00 – 18:00</div><button class="btn btn-primary btn-sm" onclick="openModal()">+ إضافة مرشح جديد</button></div></td></tr>';
           return;
         }
 
-        tbody.innerHTML = clients.map(c => \`
+      if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:24px;"><div class="empty-state" style="padding:12px;"><div class="t">لا توجد نتائج مطابقة</div><div class="d">جرّب توسيع البحث أو تصفية مختلفة</div><button class="btn btn-outline-light btn-sm" onclick="clearClientFilter()">مسح التصفية</button></div></td></tr>';
+        return;
+      }
+      tbody.innerHTML = list.map(c => \`
           <tr>
             <td style="font-weight: 700;">\${c.firstName} \${c.lastName}</td>
             <td>\${c.category === 'Master_PhD' ? 'ماجستير / دكتوراه' : 'بكالوريوس'}</td>
@@ -1786,11 +1846,41 @@ function getAdminHTML(): string {
             </td>
           </tr>
         \`).join('');
-      } catch (err) {
-        console.error('Failed to load dashboard:', err);
-        toast('تعذر تحديث اللوحة: ' + (err && err.message ? err.message : err), 'error', 'dash');
-      }
+
     }
+    function renderBudget(metrics, tripped) {
+      var secs = Math.round((metrics && metrics.total_browser_seconds) || 0);
+      document.getElementById('budget-text').textContent = secs + ' / 600s';
+      document.getElementById('budget-fill').style.transform = 'scaleX(' + Math.min(1, secs / 600) + ')';
+      var st = document.getElementById('budget-state');
+      if (tripped) { st.textContent = 'القاطع مفصول — توقف الفحص'; st.style.color = 'var(--danger)'; }
+      else if (secs >= 480) { st.textContent = 'اقتراب من الحد'; st.style.color = 'var(--warning)'; }
+      else { st.textContent = 'طبيعي'; st.style.color = 'var(--text-muted)'; }
+    }
+    function renderHealth(list) {
+      var tb = document.getElementById('health-rows');
+      if (!tb) return;
+      if (!list.length) {
+        tb.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:20px;">لا أعطال حديثة — مسار الحجز سليم</td></tr>';
+        return;
+      }
+      tb.innerHTML = list.map(function(f) {
+        return '<tr><td class="mono-time">' + auditTime(f.created_at) + '</td><td><span class="status-pill status-paused">' + escapeHtml(f.event_type) + '</span></td><td style="font-size:12.5px;">' + escapeHtml(f.message) + '</td><td class="mono" style="font-size:11px; direction:ltr;">' + escapeHtml((f.job_id || '?').slice(0, 12)) + '</td></tr>';
+      }).join('');
+    }
+    document.getElementById('client-search').addEventListener('input', function(e) {
+      window.__clientFilter.q = e.target.value || '';
+      renderClients();
+    });
+    document.getElementById('client-pills').addEventListener('click', function(e) {
+      var btn = e.target.closest ? e.target.closest('.pill-btn') : null;
+      if (!btn) return;
+      window.__clientFilter.status = btn.getAttribute('data-status') || '';
+      var pills = document.querySelectorAll('#client-pills .pill-btn');
+      pills.forEach(function(p) { p.setAttribute('aria-pressed', p === btn ? 'true' : 'false'); });
+      renderClients();
+    });
+
     async function loadDailyReport(dateOverride) {
       const input = document.getElementById('report-date');
       // ponytail: default to Cairo today via Intl en-CA, no dep
@@ -1803,15 +1893,12 @@ function getAdminHTML(): string {
       const elMissed = document.getElementById('rep-missed');
       const elTechnical = document.getElementById('rep-technical');
       const elDetails = document.getElementById('rep-missed-details');
-      const elTimeline = document.getElementById('timeline-rows');
       const elHistory = document.getElementById('history-rows');
-      const elDisclaimer = document.getElementById('timeline-disclaimer');
       if (!elWas) return;
       elWas.innerHTML = '<span class="skeleton" style="display:inline-block; width:110px; height:20px;"></span>';
       elFound.textContent = '…'; elBooked.textContent = '…'; elMissed.textContent = '…';
       if (elTechnical) elTechnical.textContent = '…';
       elDetails.textContent = '';
-      if (elTimeline) elTimeline.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-dim); padding:20px;">جاري تحميل الجدول الزمني...</td></tr>';
       if (elHistory) elHistory.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-dim); padding:16px;">جاري تحميل السجل التاريخي...</td></tr>';
       try {
         const d = await fetchJSON('/api/daily-report?date=' + encodeURIComponent(date));
@@ -1830,38 +1917,6 @@ function getAdminHTML(): string {
         } else {
           elDetails.textContent = d.was_open ? 'لا توجد فرص ضائعة بهذا التعريف لهذا اليوم — كل ما رُصد تم حَجزه أو لا يزال قيد المحاولة.' : 'لم تُرصد أي شبكة أسبوع بها مواعيد في هذا اليوم بتوقيت القاهرة.';
           elDetails.style.color = 'var(--text-dim)';
-        }
-
-        // Render Timeline
-        if (elTimeline) {
-          var hasHistorical = false;
-          if (d.timeline && d.timeline.length) {
-            elTimeline.innerHTML = d.timeline.map(function(t){
-              if (t.is_historical) hasHistorical = true;
-              var badgeCls = 'status-paused';
-              if (t.event_type === 'BOOKED') badgeCls = 'status-active';
-              else if (t.event_type === 'BOOKING_STARTED' || t.event_type === 'SUBMITTED') badgeCls = 'status-active';
-              else if (t.event_type === 'BOOKING_FAILED' || t.event_type === 'SLOT_GONE_PRE_LAUNCH') badgeCls = 'status-cancelled';
-              else if (t.event_type === 'APPOINTMENT_FOUND' || t.event_type === 'BOOKING_RETRY') badgeCls = 'status-scheduled';
-              var cleanW = (t.week || '—').replace(' 12:00:00 AM','');
-              var attemptStr = t.attempt ? ('#' + t.attempt) : '—';
-              var corrStr = t.correlation_id ? ('<span class="mono" style="font-size:11px;" title="' + t.correlation_id + '">' + t.correlation_id.slice(-8) + '</span>') : '<span style="color:var(--text-dim); font-size:11px;">— (سجل قديم)</span>';
-              var histTag = t.is_historical ? ' <span style="font-size:10px; color:var(--text-dim); background:var(--bg); padding:1px 5px; border-radius:4px; border:1px solid var(--border-subtle);">تاريخي</span>' : '';
-              return '<tr>' +
-                '<td class="mono" style="direction:ltr; font-size:12px;">' + (t.cairo_time || '—') + '</td>' +
-                '<td><span class="status-pill ' + badgeCls + '">' + (t.status_badge || t.event_type) + '</span>' + histTag + '</td>' +
-                '<td class="mono" style="direction:ltr; font-size:12px;">' + cleanW + '</td>' +
-                '<td class="mono" style="text-align:center;">' + attemptStr + '</td>' +
-                '<td style="font-size:12.5px;">' + (t.message || '—') + '</td>' +
-                '<td>' + corrStr + '</td>' +
-              '</tr>';
-            }).join('');
-          } else {
-            elTimeline.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-dim); padding:20px;">لا توجد أحداث حجز مسجلة في هذا اليوم بتوقيت القاهرة.</td></tr>';
-          }
-          if (elDisclaimer) {
-            elDisclaimer.style.display = hasHistorical ? 'block' : 'none';
-          }
         }
 
         // Render Multi-day History
@@ -1898,10 +1953,6 @@ function getAdminHTML(): string {
     loadDashboard();
     loadDailyReport();
     loadAudit();
-    try {
-      document.getElementById('masthead-date').textContent =
-        new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Cairo' });
-    } catch (e) {}
     setInterval(loadDashboard, 10000);
     setInterval(loadAudit, 10000);
   </script>

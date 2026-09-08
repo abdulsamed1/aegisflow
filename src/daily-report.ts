@@ -90,7 +90,7 @@ export function formatCairoTimestamp(isoOrDbString: string): { cairoDate: string
   }
 }
 
-function formatBadgeAndMessage(
+export function formatBadgeAndMessage(
   eventType: string,
   details: Record<string, any>,
   week: string,
