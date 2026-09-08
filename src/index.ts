@@ -190,34 +190,69 @@ export default {
 
         const decryptedClients = await Promise.all(
           (results || []).map(async (c: any) => {
-            const passportDec = await decryptPII(c.passport_number_enc, secret);
-            return {
-              id: c.id,
-              jobId: c.job_id,
-              firstName: await decryptPII(c.first_name_enc, secret),
-              lastName: await decryptPII(c.last_name_enc, secret),
-              familyNameAtBirth: await decryptPII(c.family_name_at_birth_enc, secret),
-              placeOfBirth: c.place_of_birth,
-              countryOfBirth: c.country_of_birth,
-              nationalityAtBirth: c.nationality_at_birth,
-              street: await decryptPII(c.address_street_enc, secret),
-              postalCode: await decryptPII(c.address_postal_code_enc, secret),
-              city: await decryptPII(c.address_city_enc, secret),
-              passportIssueDate: c.passport_issue_date,
-              passportIssuingCountry: c.passport_issuing_country,
-              gender: c.gender,
-              dob: c.dob,
-              nationality: c.nationality,
-              email: await decryptPII(c.email_enc, secret),
-              phone: await decryptPII(c.phone_enc, secret),
-              passportExpiry: c.passport_expiry,
-              maskedPassport: maskPassport(passportDec),
-              category: c.category,
-              calendarId: c.calendar_id,
-              status: c.job_status || c.status,
-              jobEnabled: Boolean(c.job_enabled),
-              createdAt: c.created_at
-            };
+            try {
+              const passportDec = await decryptPII(c.passport_number_enc, secret);
+              return {
+                id: c.id,
+                jobId: c.job_id,
+                firstName: await decryptPII(c.first_name_enc, secret),
+                lastName: await decryptPII(c.last_name_enc, secret),
+                familyNameAtBirth: await decryptPII(c.family_name_at_birth_enc, secret),
+                placeOfBirth: c.place_of_birth,
+                countryOfBirth: c.country_of_birth,
+                nationalityAtBirth: c.nationality_at_birth,
+                street: await decryptPII(c.address_street_enc, secret),
+                postalCode: await decryptPII(c.address_postal_code_enc, secret),
+                city: await decryptPII(c.address_city_enc, secret),
+                passportIssueDate: c.passport_issue_date,
+                passportIssuingCountry: c.passport_issuing_country,
+                gender: c.gender,
+                dob: c.dob,
+                nationality: c.nationality,
+                email: await decryptPII(c.email_enc, secret),
+                phone: await decryptPII(c.phone_enc, secret),
+                passportExpiry: c.passport_expiry,
+                maskedPassport: maskPassport(passportDec),
+                category: c.category,
+                calendarId: c.calendar_id,
+                status: c.job_status || c.status,
+                jobEnabled: Boolean(c.job_enabled),
+                createdAt: c.created_at,
+                decryptError: false
+              };
+            } catch {
+              // ponytail: one row encrypted under a non-matching key must not 500
+              // the whole ledger — flag it so the operator can repair (re-enter key
+              // or delete + re-add the client) instead of staring at skeletons.
+              return {
+                id: c.id,
+                jobId: c.job_id,
+                firstName: "—",
+                lastName: "تعذر فك التشفير",
+                familyNameAtBirth: "",
+                placeOfBirth: c.place_of_birth,
+                countryOfBirth: c.country_of_birth,
+                nationalityAtBirth: c.nationality_at_birth,
+                street: "",
+                postalCode: "",
+                city: "",
+                passportIssueDate: c.passport_issue_date,
+                passportIssuingCountry: c.passport_issuing_country,
+                gender: c.gender,
+                dob: c.dob,
+                nationality: c.nationality,
+                email: "",
+                phone: "",
+                passportExpiry: c.passport_expiry,
+                maskedPassport: "****",
+                category: c.category,
+                calendarId: c.calendar_id,
+                status: c.job_status || c.status,
+                jobEnabled: Boolean(c.job_enabled),
+                createdAt: c.created_at,
+                decryptError: true
+              };
+            }
           })
         );
 
@@ -530,10 +565,12 @@ export default {
         }), { headers: { "Content-Type": "application/json", ...corsHeaders } });
       }
 
-      // API: Fetch Audit Logs
+      // API: Fetch Audit Logs (bounded; viewer filters signal client-side)
       if (path === "/api/logs" && request.method === "GET") {
-        const { results } = await env.DB.prepare("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 50").all();
-        return new Response(JSON.stringify(results || []), {
+        const rawLimit = parseInt(url.searchParams.get("limit") || "50", 10);
+        const limit = Number.isFinite(rawLimit) ? Math.min(200, Math.max(1, rawLimit)) : 50;
+        const { results } = await env.DB.prepare("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ?").bind(limit).all();
+        return new Response(JSON.stringify((results || []).slice(0, limit)), {
           headers: { "Content-Type": "application/json", ...corsHeaders }
         });
       }
@@ -1056,6 +1093,7 @@ function getAdminHTML(): string {
     }
     .status-active { background: var(--primary); color: var(--primary-ink); } /* solid red stamp */
     .status-paused { color: var(--text); border: 1.5px solid var(--border-strong); background: transparent; } /* ink stamp */
+    .status-warn { color: var(--danger); border: 1.5px solid rgba(192,57,43,0.45); background: transparent; } /* corrupted-ciphertext flag */
 
     .row-actions { display: flex; gap: 8px; white-space: nowrap; }
 
@@ -1362,7 +1400,7 @@ function getAdminHTML(): string {
       <div class="table-header" style="flex-wrap:wrap; gap:12px;">
         <div><div class="eyebrow">سجل النظام</div><h2 id="audit-title">أحداث التدقيق المباشرة</h2></div>
         <div class="audit-controls">
-          <select id="audit-type" class="form-select" aria-label="تصفية حسب نوع الحدث"><option value="">كل الأحداث</option></select>
+          <select id="audit-type" class="form-select" aria-label="تصفية حسب نوع الحدث"><option value="signal" selected>الأحداث المهمة فقط</option><option value="">كل الأحداث</option></select>
           <input id="audit-search" class="form-control" type="search" placeholder="بحث…" aria-label="بحث في السجل" style="max-width:150px;">
           <button class="btn btn-outline-light btn-sm" id="audit-refresh" type="button" onclick="loadAudit()">تحديث</button>
         </div>
@@ -1614,9 +1652,13 @@ function getAdminHTML(): string {
       });
     }
 
-    function toast(msg, kind) {
+    var lastToastKey = null;
+    var lastToastEl = null;
+    function toast(msg, kind, dedupeKey) {
       var box = document.getElementById("toasts");
       if (!box) return;
+      // ponytail: 10s polling must not stack identical failure slips — one visible slip per cause.
+      if (dedupeKey && dedupeKey === lastToastKey && lastToastEl && lastToastEl.isConnected) return;
       var el = document.createElement("div");
       el.className = "toast" + (kind === "success" ? " toast-success" : kind === "error" ? " toast-error" : "");
       var span = document.createElement("span");
@@ -1629,7 +1671,19 @@ function getAdminHTML(): string {
       el.appendChild(x);
       box.appendChild(el);
       while (box.children.length > 4) box.firstChild.remove();
+      if (dedupeKey) { lastToastKey = dedupeKey; lastToastEl = el; }
       setTimeout(function() { el.remove(); }, 4000);
+    }
+
+    // ponytail: surface the server's own error message (500 bodies name the cause —
+    // without this the UI can only report the downstream TypeError, hiding the culprit).
+    async function fetchJSON(url) {
+      var res = await fetch(url);
+      if (!res.ok) {
+        var body = await res.json().catch(function() { return null; });
+        throw new Error("HTTP " + res.status + (body && body.error ? ": " + body.error : ""));
+      }
+      return res.json();
     }
 
     async function logout() {
@@ -1653,18 +1707,21 @@ function getAdminHTML(): string {
       try { det = JSON.parse(r.details || "{}"); } catch (e) {}
       return det.error || det.week || det.referenceId || r.job_id || r.client_id || "—";
     }
+    var SIGNAL_DEFAULT = "signal";
+    var NOISE_TYPES = { NO_APPOINTMENT: true, UNKNOWN_RESPONSE: true };
     function renderAudit() {
       var sel = document.getElementById("audit-type");
       var q = (document.getElementById("audit-search").value || "").trim();
       var rows = window.__audit || [];
       var known = {};
       rows.forEach(function(r) { known[r.event_type] = true; });
-      var cur = sel.value;
-      sel.innerHTML = '<option value="">كل الأحداث</option>' + Object.keys(known).sort().map(function(t) {
+      var cur = sel.value || SIGNAL_DEFAULT;
+      sel.innerHTML = '<option value="signal">الأحداث المهمة فقط</option><option value="">كل الأحداث</option>' + Object.keys(known).sort().map(function(t) {
         return '<option value="' + t + '"' + (t === cur ? " selected" : "") + ">" + t + "</option>";
       }).join("");
       var out = rows.filter(function(r) {
-        if (cur && r.event_type !== cur) return false;
+        if (cur === SIGNAL_DEFAULT && NOISE_TYPES[r.event_type]) return false;
+        if (cur && cur !== SIGNAL_DEFAULT && r.event_type !== cur) return false;
         if (q && JSON.stringify(r).indexOf(q) === -1) return false;
         return true;
       }).slice(0, 50);
@@ -1679,12 +1736,10 @@ function getAdminHTML(): string {
     }
     async function loadAudit() {
       try {
-        var res = await fetch("/api/logs");
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        window.__audit = await res.json();
+        window.__audit = await fetchJSON("/api/logs?limit=200");
         renderAudit();
       } catch (err) {
-        toast("تعذر تحميل سجل التدقيق: " + (err && err.message ? err.message : err), "error");
+        toast("تعذر تحميل سجل التدقيق: " + (err && err.message ? err.message : err), "error", "audit");
       }
     }
     document.getElementById("audit-type").addEventListener("change", renderAudit);
@@ -1692,14 +1747,12 @@ function getAdminHTML(): string {
 
     async function loadDashboard() {
       try {
-        const res = await fetch('/api/status');
-        const data = await res.json();
+        const data = await fetchJSON('/api/status');
         document.getElementById('val-active').innerText = data.activeJobs + ' / 10';
         document.getElementById('val-checks').innerText = data.metricsToday.total_checks || 0;
         document.getElementById('val-booked').innerText = data.metricsToday.bookings_completed || 0;
 
-        const clientsRes = await fetch('/api/clients');
-        const clients = await clientsRes.json();
+        const clients = await fetchJSON('/api/clients');
         window.__clients = clients;
         const tbody = document.getElementById('client-rows');
         
@@ -1714,6 +1767,7 @@ function getAdminHTML(): string {
             <td>\${c.category === 'Master_PhD' ? 'ماجستير / دكتوراه' : 'بكالوريوس'}</td>
             <td><span class="mono">\${c.maskedPassport}</span></td>
             <td>
+              \${c.decryptError ? '<span class="status-pill status-warn">تعذر فك التشفير ⚠</span>' : ''}
               \${c.status === 'CANCELLED'
                 ? '<span class="status-pill status-paused">ملغي 🚫</span>'
                 : c.status === 'BOOKED'
@@ -1734,7 +1788,7 @@ function getAdminHTML(): string {
         \`).join('');
       } catch (err) {
         console.error('Failed to load dashboard:', err);
-        toast('تعذر تحديث اللوحة: ' + (err && err.message ? err.message : err), 'error');
+        toast('تعذر تحديث اللوحة: ' + (err && err.message ? err.message : err), 'error', 'dash');
       }
     }
     async function loadDailyReport(dateOverride) {
@@ -1760,9 +1814,7 @@ function getAdminHTML(): string {
       if (elTimeline) elTimeline.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-dim); padding:20px;">جاري تحميل الجدول الزمني...</td></tr>';
       if (elHistory) elHistory.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-dim); padding:16px;">جاري تحميل السجل التاريخي...</td></tr>';
       try {
-        const res = await fetch('/api/daily-report?date=' + encodeURIComponent(date));
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const d = await res.json();
+        const d = await fetchJSON('/api/daily-report?date=' + encodeURIComponent(date));
         elWas.innerHTML = d.was_open
           ? '<span class="status-pill status-active">مفتوحة — رُصدت مواعيد ✓</span>'
           : '<span class="status-pill status-paused">مغلقة — لا مواعيد</span>';
@@ -1838,6 +1890,7 @@ function getAdminHTML(): string {
       } catch (err) {
         elDetails.textContent = 'تعذر تحميل التقرير: ' + (err && err.message ? err.message : err);
         elDetails.style.color = 'var(--danger)';
+        toast(elDetails.textContent, 'error', 'report');
       }
     }
     document.getElementById('report-date')?.addEventListener('change', function(e){ loadDailyReport(e.target.value); });
