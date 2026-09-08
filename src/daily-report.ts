@@ -1,5 +1,14 @@
 import { getCairoDateString } from "./scheduler";
 
+// ponytail: module-level formatters — constructed once, not per row (see formatCairoTimestamp).
+const cairoTimeFmt = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Africa/Cairo",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false
+});
+
 export interface ReportRow {
   id?: number;
   job_id: string;
@@ -72,7 +81,9 @@ export function formatCairoTimestamp(isoOrDbString: string): { cairoDate: string
   if (Number.isNaN(ts.getTime())) return { cairoDate: "", cairoTime: "" };
   try {
     const cairoDate = getCairoDateString(ts);
-    const cairoTime = ts.toLocaleTimeString("en-GB", { timeZone: "Africa/Cairo", hour12: false });
+    // ponytail: shared formatter — toLocaleTimeString builds one per call (~100µs);
+    // at 10k rows that alone is ~1s CPU and the platform kills the isolate (HTTP 503).
+    const cairoTime = cairoTimeFmt.format(ts);
     return { cairoDate, cairoTime };
   } catch {
     return { cairoDate: "", cairoTime: "" };
@@ -187,6 +198,9 @@ export function aggregateDailyReport(rows: ReportRow[], cairoDay: string) {
   // Pass 2: Process all rows chronologically to update state and construct timeline
   for (const r of rows) {
     if (!r.job_id) continue;
+    // ponytail: skip routine high-volume scan ticks BEFORE parse/format — they never
+    // create opportunities (no week) and are excluded from the timeline below.
+    if (r.event_type === "NO_APPOINTMENT") continue;
     const details = parseDetails(r.details);
     const week = parseWeek(r.details);
     const key = week ? `${r.job_id}|${week}` : "";
@@ -224,9 +238,7 @@ export function aggregateDailyReport(rows: ReportRow[], cairoDay: string) {
       }
     }
 
-    // Skip routine high-volume scan ticks from cluttering the timeline
-    if (r.event_type === "NO_APPOINTMENT") continue;
-
+    // Routine high-volume scan ticks are skipped at the top of the loop.
     const { cairoDate, cairoTime } = formatCairoTimestamp(r.created_at);
     const attempt = typeof details.attempt === "number" ? details.attempt : undefined;
     const isHistorical = !details.correlationId && !details.classification && r.event_type !== "APPOINTMENT_FOUND";
