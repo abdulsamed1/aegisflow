@@ -1662,7 +1662,7 @@ function getAdminHTML(): string {
                 '<td class="mono" style="color:var(--success);">' + h.opportunities_booked + '</td>' +
                 '<td class="mono" style="color:var(--danger);">' + h.opportunities_missed + '</td>' +
                 '<td class="mono" style="color:var(--warning);">' + h.technical_failures + '</td>' +
-                '<td><button class="btn btn-outline-light btn-sm" onclick="loadDailyReport(\'' + h.date + '\')">عرض هذا اليوم</button></td>' +
+                '<td><button class="btn btn-outline-light btn-sm" onclick="loadDailyReport(\\'' + h.date + '\\'' + ')">عرض هذا اليوم</button></td>' +
               '</tr>';
             }).join('');
           } else {

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
+import vm from "node:vm";
 import worker from "../src/index";
 
 const originalFetch = worker.fetch;
@@ -361,6 +362,22 @@ test("Dashboard: premium assets are present", async () => {
   assert.ok(css.includes(".grid-metrics {"), "Metric grid rule must not be swallowed by a comment");
   assert.ok(css.includes(".metric-card {"), "Metric card rule must not be swallowed by a comment");
   assert.ok(css.includes(".metric-card.featured"), "Featured card rule must not be swallowed by a comment");
+});
+
+test("Dashboard: inline <script> parses without SyntaxError", async () => {
+  // Regression: a single JS syntax error kills the whole inline block — no fetch()
+  // ever fires and the dashboard sits on skeletons forever (live incident 2026-09-08:
+  // loadDailyReport('' + h.date + '') after backslash loss in the template literal).
+  const env = createMockEnv();
+  const res = await worker.fetch(new Request("https://aegisflow.local/"), env, {} as any);
+  const html = await res.text();
+  const open = html.indexOf("<script>");
+  const close = html.indexOf("</script>");
+  assert.ok(open >= 0 && close > open, "Dashboard must ship its inline script");
+  const js = html.slice(open + "<script>".length, close);
+  // ponytail: node:vm parses without executing — catches browser-killing SyntaxErrors
+  // that tsc and DOM-string assertions cannot see.
+  assert.doesNotThrow(() => new vm.Script(js), "Inline dashboard JS must parse in the browser");
 });
 
 test("Dashboard: CRUD affordances wired", async () => {
