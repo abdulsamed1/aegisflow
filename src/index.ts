@@ -497,11 +497,30 @@ export default {
           const d = new Date(dateParam + "T12:00:00Z");
           if (!Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === dateParam) cairoDay = dateParam;
         }
-        const { results } = await env.DB.prepare("SELECT id, job_id, client_id, event_type, duration_ms, details, created_at FROM audit_logs WHERE created_at >= datetime('now', '-8 days') ORDER BY created_at ASC").all<any>();
-        const allRows = results || [];
+        // ponytail: bulk scan-noise types (NO_APPOINTMENT, UNKNOWN_RESPONSE ≈100% of rows)
+        // carry zero opportunity signal — summaries/history never read them. Selecting 8 days
+        // of them cost ~2.6s CPU on 10k rows (per-row Intl + JSON.parse) and the platform
+        // kills the isolate (HTTP 503 on the 10ms Free budget). Two bounded queries instead:
+        // signal rows (rare types, all days) + UNKNOWN rows (selected Cairo day window only).
+        // Cairo is UTC+2/+3, so [day-1, day+2) UTC strictly contains the Cairo day.
+        const { results: signalResults } = await env.DB.prepare(
+          "SELECT id, job_id, client_id, event_type, duration_ms, details, created_at FROM audit_logs WHERE created_at >= datetime('now', '-8 days') AND event_type NOT IN ('NO_APPOINTMENT','UNKNOWN_RESPONSE') ORDER BY created_at ASC"
+        ).all<any>();
+        const { results: unknownResults } = await env.DB.prepare(
+          "SELECT id, job_id, client_id, event_type, duration_ms, details, created_at FROM audit_logs WHERE event_type = 'UNKNOWN_RESPONSE' AND created_at >= datetime(?, '-1 day') AND created_at < datetime(?, '+2 days') ORDER BY created_at ASC"
+        ).bind(cairoDay, cairoDay).all<any>();
+        const signalRows = signalResults || [];
+        const unknownRows = unknownResults || [];
+        // ponytail: both inputs arrive sorted — merge (not concat) keeps allRows chronological in O(n).
+        const allRows: any[] = [];
+        let i = 0, j = 0;
+        while (i < signalRows.length || j < unknownRows.length) {
+          if (j >= unknownRows.length || (i < signalRows.length && signalRows[i].created_at <= unknownRows[j].created_at)) allRows.push(signalRows[i++]);
+          else allRows.push(unknownRows[j++]);
+        }
         const cairoRows = filterRowsByCairoDay(allRows, cairoDay);
         const agg = aggregateDailyReport(cairoRows as any, cairoDay);
-        const history = summarizePriorCairoDays(allRows);
+        const history = summarizePriorCairoDays(signalRows);
         return new Response(JSON.stringify({
           ...agg,
           history,
@@ -1153,14 +1172,32 @@ function getAdminHTML(): string {
       .form-grid { grid-template-columns: 1fr; }
       .row-actions { flex-wrap: wrap; }
     }
-    /* ---- premium upgrades — dossiers, not dashboards ---- */
+    /* ---- bento ledger surface (v7): modular tiles, same dossier tokens ----
+       No shadows, no decorative gradients, no glow — separation is hairlines
+       and surface tone only. Accent stays on stamps/CTAs. */
     html { scroll-behavior: smooth; }
-    .metric-card { transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease; }
-    .metric-card:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(35,32,26,0.07); border-color: var(--border-strong); }
-    .table-card { box-shadow: 0 1px 0 rgba(35,32,26,0.04); }
-    #daily-report-card { position: relative; overflow: hidden; }
-    #daily-report-card::before { content:""; position:absolute; inset:0 0 auto 0; height:3px; background: linear-gradient(90deg, var(--primary), #d98a5c 60%, var(--border-strong)); opacity:0.9; }
+    .table-card { margin-bottom: 22px; }
     .table-header h2 { text-wrap: balance; letter-spacing: -0.02em; }
+    .eyebrow { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; color: var(--text-dim); text-transform: uppercase; margin-bottom: 2px; }
+    .bento { display: grid; grid-template-columns: 7fr 5fr; gap: 0 16px; align-items: start; margin-bottom: 22px; }
+    .bento > .table-card { margin-bottom: 0; min-width: 0; }
+    #daily-report-card { position: relative; overflow: hidden; border-top: 3px solid var(--primary); } /* stamp rule, solid ink */
+    .masthead-title { font-size: 19px; font-weight: 800; letter-spacing: -0.02em; }
+    .masthead-sub { font-size: 12px; color: var(--text-muted); }
+    .masthead-actions { display: flex; gap: 8px; }
+    /* ---- toasts: paper slips pinned to the corner ---- */
+    #toasts { position: fixed; bottom: 20px; inset-inline-start: 20px; z-index: 200; display: flex; flex-direction: column; gap: 8px; max-width: min(360px, 90vw); }
+    .toast { background: var(--bg-raised); border: 1px solid var(--border-strong); border-inline-start: 3px solid var(--primary); border-radius: var(--radius-control); padding: 10px 14px; font-size: 13px; display: flex; gap: 10px; align-items: center; animation: rise 0.2s ease both; }
+    .toast-success { border-inline-start-color: var(--success); }
+    .toast-error { border-inline-start-color: var(--danger); }
+    .toast button { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 14px; line-height: 1; margin-inline-start: auto; }
+    /* ---- audit ledger controls ---- */
+    .audit-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .audit-controls .form-select, .audit-controls .form-control { width: auto; }
+    #audit-card tbody td.mono-time { font-family: var(--font-mono); direction: ltr; font-size: 12px; white-space: nowrap; }
+    @media (max-width: 1100px) {
+      .bento { grid-template-columns: 1fr; gap: 22px; }
+    }
     @media (max-width: 480px) {
       .grid-metrics { grid-template-columns: 1fr; }
     }
@@ -1172,7 +1209,15 @@ function getAdminHTML(): string {
 <body>
   <div class="container">
     <header class="header">
-      <button class="btn btn-primary" onclick="openModal()">+ إضافة مرشح جديد</button>
+      <div>
+        <div class="eyebrow">ملف القضية · Africa/Cairo</div>
+        <div class="masthead-title">دفتر حجوزات aegisflow</div>
+        <div class="masthead-sub">اليوم: <span id="masthead-date">—</span> · نافذة الفحص 07:00 – 18:00</div>
+      </div>
+      <div class="masthead-actions">
+        <button class="btn btn-outline-light" id="logout-btn" type="button" onclick="logout()">تسجيل الخروج</button>
+        <button class="btn btn-primary" onclick="openModal()">+ إضافة مرشح جديد</button>
+      </div>
     </header>
 
     <div class="grid-metrics">
@@ -1193,7 +1238,7 @@ function getAdminHTML(): string {
     <!-- Daily Report — Paper Dossier: Cairo-day dedup, Arabic-first disclosure -->
     <section class="table-card" id="daily-report-card" aria-labelledby="daily-report-title">
       <div class="table-header" style="flex-wrap:wrap; gap:12px;">
-        <h2 id="daily-report-title">التقرير اليومي — المواعيد المرصودة</h2>
+        <div><div class="eyebrow">تقرير القاهرة اليومي</div><h2 id="daily-report-title">التقرير اليومي — المواعيد المرصودة</h2></div>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <label for="report-date" style="font-size:12px; font-weight:700; color:var(--text-muted);">اليوم (القاهرة)</label>
           <input id="report-date" class="form-control" type="date" style="width:auto; min-width:170px;" aria-label="اختر يوم التقرير بتوقيت القاهرة">
@@ -1287,9 +1332,10 @@ function getAdminHTML(): string {
       </div>
     </section>
 
-    <div class="table-card">
+    <div class="bento">
+    <section class="table-card" aria-labelledby="clients-title">
       <div class="table-header">
-        <h2>قائمة مرشحي الحجز</h2>
+        <div><div class="eyebrow">سجل المرشحين</div><h2 id="clients-title">قائمة مرشحي الحجز</h2></div>
         <span class="livetag" style="margin:0;"><span class="dot"></span><span class="txt">تحديث تلقائي 10 ثوانٍ</span></span>
       </div>
       <div class="table-wrap">
@@ -1310,9 +1356,37 @@ function getAdminHTML(): string {
           </tbody>
         </table>
       </div>
+    </section>
+
+    <section class="table-card" id="audit-card" aria-labelledby="audit-title">
+      <div class="table-header" style="flex-wrap:wrap; gap:12px;">
+        <div><div class="eyebrow">سجل النظام</div><h2 id="audit-title">أحداث التدقيق المباشرة</h2></div>
+        <div class="audit-controls">
+          <select id="audit-type" class="form-select" aria-label="تصفية حسب نوع الحدث"><option value="">كل الأحداث</option></select>
+          <input id="audit-search" class="form-control" type="search" placeholder="بحث…" aria-label="بحث في السجل" style="max-width:150px;">
+          <button class="btn btn-outline-light btn-sm" id="audit-refresh" type="button" onclick="loadAudit()">تحديث</button>
+        </div>
+      </div>
+      <div class="table-wrap" style="max-height:380px; overflow-y:auto;">
+        <table style="min-width:480px;">
+          <thead>
+            <tr>
+              <th style="width:90px;">الوقت</th>
+              <th style="width:150px;">الحدث</th>
+              <th>التفاصيل</th>
+            </tr>
+          </thead>
+          <tbody id="audit-rows">
+            <tr><td colspan="3" style="text-align:center; color:var(--text-dim); padding:20px;">جاري تحميل السجل...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
     </div>
 
   </div>
+
+  <div id="toasts" aria-live="polite"></div>
 
   <!-- Modal -->
   <div class="modal-backdrop" id="client-modal">
@@ -1471,8 +1545,14 @@ function getAdminHTML(): string {
     }
 
     async function toggleJob(jobId, action) {
-      await fetch('/api/jobs/' + jobId + '/' + action, { method: 'POST' });
-      loadDashboard();
+      try {
+        var res = await fetch('/api/jobs/' + jobId + '/' + action, { method: 'POST' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        toast('تم تحديث حالة المهمة بنجاح', 'success');
+        loadDashboard();
+      } catch (err) {
+        toast('تعذر تحديث المهمة: ' + (err && err.message ? err.message : err), 'error');
+      }
     }
 
     async function deleteClient(clientId) {
@@ -1480,9 +1560,10 @@ function getAdminHTML(): string {
       const res = await fetch('/api/clients/' + clientId, { method: 'DELETE' });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
-        alert(err && err.error ? err.error : ('HTTP ' + res.status));
+        toast(err && err.error ? err.error : ('HTTP ' + res.status), 'error');
         return;
       }
+      toast('تم حذف المرشح نهائيًا', 'success');
       loadDashboard();
     }
 
@@ -1519,11 +1600,95 @@ function getAdminHTML(): string {
         const box = document.getElementById('client-form-error');
         box.textContent = err && err.error ? err.error : ('HTTP ' + res.status);
         box.classList.remove('d-none');
+        toast(box.textContent, 'error');
         return;
       }
       closeModal();
+      toast(editingClientId ? 'تم حفظ التعديلات بنجاح' : 'تمت إضافة المرشح وإنشاء مهمته', 'success');
       loadDashboard();
     };
+
+    function escapeHtml(s) {
+      return String(s == null ? "" : s).replace(/[&<>"']/g, function(c) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+      });
+    }
+
+    function toast(msg, kind) {
+      var box = document.getElementById("toasts");
+      if (!box) return;
+      var el = document.createElement("div");
+      el.className = "toast" + (kind === "success" ? " toast-success" : kind === "error" ? " toast-error" : "");
+      var span = document.createElement("span");
+      span.textContent = msg;
+      var x = document.createElement("button");
+      x.textContent = "✕";
+      x.setAttribute("aria-label", "إغلاق التنبيه");
+      x.onclick = function() { el.remove(); };
+      el.appendChild(span);
+      el.appendChild(x);
+      box.appendChild(el);
+      while (box.children.length > 4) box.firstChild.remove();
+      setTimeout(function() { el.remove(); }, 4000);
+    }
+
+    async function logout() {
+      try { await fetch("/logout", { method: "POST" }); } catch (e) {}
+      window.location.reload();
+    }
+
+    var auditTimeFmt = null;
+    try {
+      auditTimeFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    } catch (e) {}
+    function auditTime(iso) {
+      try {
+        var d = new Date((iso || "").replace(" ", "T") + "Z");
+        if (Number.isNaN(d.getTime())) return "—";
+        return auditTimeFmt ? auditTimeFmt.format(d) : d.toISOString().slice(11, 19);
+      } catch (e) { return "—"; }
+    }
+    function auditMessage(r) {
+      var det = {};
+      try { det = JSON.parse(r.details || "{}"); } catch (e) {}
+      return det.error || det.week || det.referenceId || r.job_id || r.client_id || "—";
+    }
+    function renderAudit() {
+      var sel = document.getElementById("audit-type");
+      var q = (document.getElementById("audit-search").value || "").trim();
+      var rows = window.__audit || [];
+      var known = {};
+      rows.forEach(function(r) { known[r.event_type] = true; });
+      var cur = sel.value;
+      sel.innerHTML = '<option value="">كل الأحداث</option>' + Object.keys(known).sort().map(function(t) {
+        return '<option value="' + t + '"' + (t === cur ? " selected" : "") + ">" + t + "</option>";
+      }).join("");
+      var out = rows.filter(function(r) {
+        if (cur && r.event_type !== cur) return false;
+        if (q && JSON.stringify(r).indexOf(q) === -1) return false;
+        return true;
+      }).slice(0, 50);
+      var tb = document.getElementById("audit-rows");
+      if (!out.length) {
+        tb.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:24px;"><div class="empty-state" style="padding:12px;"><div class="t">لا توجد أحداث مطابقة</div><div class="d">جرّب توسيع التصفية أو تحديث السجل</div><button class="btn btn-outline-light btn-sm" onclick="loadAudit()">تحديث السجل</button></div></td></tr>';
+        return;
+      }
+      tb.innerHTML = out.map(function(r) {
+        return '<tr><td class="mono-time">' + auditTime(r.created_at) + '</td><td><span class="status-pill status-paused">' + escapeHtml(r.event_type) + '</span></td><td style="font-size:12.5px;">' + escapeHtml(auditMessage(r)) + "</td></tr>";
+      }).join("");
+    }
+    async function loadAudit() {
+      try {
+        var res = await fetch("/api/logs");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        window.__audit = await res.json();
+        renderAudit();
+      } catch (err) {
+        toast("تعذر تحميل سجل التدقيق: " + (err && err.message ? err.message : err), "error");
+      }
+    }
+    document.getElementById("audit-type").addEventListener("change", renderAudit);
+    document.getElementById("audit-search").addEventListener("input", renderAudit);
 
     async function loadDashboard() {
       try {
@@ -1569,6 +1734,7 @@ function getAdminHTML(): string {
         \`).join('');
       } catch (err) {
         console.error('Failed to load dashboard:', err);
+        toast('تعذر تحديث اللوحة: ' + (err && err.message ? err.message : err), 'error');
       }
     }
     async function loadDailyReport(dateOverride) {
@@ -1678,7 +1844,13 @@ function getAdminHTML(): string {
 
     loadDashboard();
     loadDailyReport();
+    loadAudit();
+    try {
+      document.getElementById('masthead-date').textContent =
+        new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Cairo' });
+    } catch (e) {}
     setInterval(loadDashboard, 10000);
+    setInterval(loadAudit, 10000);
   </script>
 </body>
 </html>`;

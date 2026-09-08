@@ -380,6 +380,80 @@ test("Dashboard: inline <script> parses without SyntaxError", async () => {
   assert.doesNotThrow(() => new vm.Script(js), "Inline dashboard JS must parse in the browser");
 });
 
+test("API Endpoint: GET /api/daily-report excludes bulk scan-noise types in SQL", async () => {
+  // Regression: selecting 8 days of NO_APPOINTMENT + UNKNOWN_RESPONSE (~10k rows,
+  // zero opportunity signal) burned ~2.6s CPU and the platform killed the request (HTTP 503).
+  const seen: { sql: string; args: any[] }[] = [];
+  const signalRows = [
+    { id: 1, job_id: "job_1", client_id: "c1", event_type: "APPOINTMENT_FOUND", duration_ms: 300, details: JSON.stringify({ week: "2026-09-15T00:00:00", responseLength: 9999 }), created_at: "2026-09-08 08:00:00" },
+    { id: 2, job_id: "job_1", client_id: "c1", event_type: "BOOKED", duration_ms: 9000, details: JSON.stringify({ week: "2026-09-15T00:00:00", referenceId: "REF1", correlationId: "abc", attempt: 1 }), created_at: "2026-09-08 08:05:00" },
+  ];
+  const unknownRows = [
+    { id: 3, job_id: "job_1", client_id: "c1", event_type: "UNKNOWN_RESPONSE", duration_ms: 300, details: JSON.stringify({ error: "weird grid" }), created_at: "2026-09-08 08:02:00" },
+    { id: 4, job_id: "job_1", client_id: "c1", event_type: "UNKNOWN_RESPONSE", duration_ms: 300, details: JSON.stringify({ error: "other day" }), created_at: "2026-09-01 08:02:00" },
+  ];
+  const mockDB: any = {
+    prepare: (sql: string) => {
+      const entry = { sql, args: [] as any[] };
+      seen.push(entry);
+      const stmt: any = {
+        bind: (...args: any[]) => { entry.args = args; return stmt; },
+        all: async () => ({ results: sql.includes("= 'UNKNOWN_RESPONSE'") ? unknownRows : signalRows }),
+      };
+      return stmt;
+    },
+  };
+  const env: any = { DB: mockDB, JOB_LOCK: {}, SESSION_KV: {}, MYBROWSER: {}, ENVIRONMENT: "test", ADMIN_API_KEY: "test-admin-key" };
+  const res = await worker.fetch(new Request("https://aegisflow.local/api/daily-report?date=2026-09-08"), env, {} as any);
+  assert.strictEqual(res.status, 200);
+  // Bulk noise must be filtered in SQL, not in JS over 10k rows
+  assert.strictEqual(seen.length, 2, "report must use bounded signal + day-window queries");
+  assert.ok(seen[0].sql.includes("NOT IN") && seen[0].sql.includes("NO_APPOINTMENT") && seen[0].sql.includes("UNKNOWN_RESPONSE"), "signal query must exclude noise types");
+  assert.ok(seen[1].sql.includes("UNKNOWN_RESPONSE") && seen[1].sql.includes("datetime"), "unknown query must be day-window bounded");
+  assert.deepStrictEqual(seen[1].args, ["2026-09-08", "2026-09-08"]);
+  const body = await res.json() as any;
+  assert.strictEqual(body.opportunities_found, 1);
+  assert.strictEqual(body.opportunities_booked, 1);
+  const msgs = (body.timeline as any[]).map((t) => t.message).join("\n");
+  assert.ok(msgs.includes("weird grid"), "selected-day UNKNOWN rows must stay in the timeline");
+  assert.ok(!msgs.includes("other day"), "out-of-day UNKNOWN rows must be filtered");
+  assert.ok(!(body.timeline as any[]).some((t) => t.event_type === "NO_APPOINTMENT"), "timeline must not contain scan ticks");
+});
+
+test("Dashboard: premium bento layout without slop effects", async () => {
+  const env = createMockEnv();
+  const res = await worker.fetch(new Request("https://aegisflow.local/"), env, {} as any);
+  const html = await res.text();
+  // Bento rhythm: metrics ribbon + ledger tiles share one grid surface
+  assert.ok(html.includes("bento"), "Dashboard must ship the bento grid surface");
+  // baseline-ui/v6: zero drop shadows, zero decorative gradients (paper weave + skeleton shimmer excepted)
+  const css = html.slice(html.indexOf("<style>"), html.indexOf("</style>"));
+  assert.ok(!css.includes("box-shadow"), "No drop shadows anywhere in the dossier");
+  const gradients = (css.match(/linear-gradient/g) || []).length;
+  assert.ok(gradients <= 3, `At most paper-weave (2) + skeleton shimmer (1) gradients, found ${gradients}`);
+  // Masthead: dossier title + Cairo date + logout (POST /logout exists but had no UI)
+  assert.ok(html.includes('id="masthead-date"'), "Masthead must show the Cairo date");
+  assert.ok(html.includes('id="logout-btn"'), "Masthead must expose logout");
+});
+
+test("Dashboard: audit ledger tile reuses /api/logs with client-side filter", async () => {
+  const env = createMockEnv();
+  const res = await worker.fetch(new Request("https://aegisflow.local/"), env, {} as any);
+  const html = await res.text();
+  for (const id of ["audit-rows", "audit-type", "audit-search", "audit-refresh"]) {
+    assert.ok(html.includes(`id="${id}"`), `Audit tile must include #${id}`);
+  }
+  assert.ok(html.includes("loadAudit"), "Dashboard JS must fetch and render the audit ledger");
+});
+
+test("Dashboard: toast stack for action feedback", async () => {
+  const env = createMockEnv();
+  const res = await worker.fetch(new Request("https://aegisflow.local/"), env, {} as any);
+  const html = await res.text();
+  assert.ok(html.includes('id="toasts"'), "Dashboard must ship the toast stack");
+  assert.ok(html.includes("function toast("), "Dashboard JS must define toast()");
+});
+
 test("Dashboard: CRUD affordances wired", async () => {
   const env = createMockEnv();
   const res = await worker.fetch(new Request("https://aegisflow.local/"), env, {} as any);
