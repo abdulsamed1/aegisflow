@@ -432,8 +432,10 @@ test("Dashboard: premium bento layout without slop effects", async () => {
   const gradients = (css.match(/linear-gradient/g) || []).length;
   assert.ok(gradients <= 3, `At most paper-weave (2) + skeleton shimmer (1) gradients, found ${gradients}`);
   // Masthead: dossier title + Cairo date + logout (POST /logout exists but had no UI)
-  assert.ok(html.includes('id="masthead-date"'), "Masthead must show the Cairo date");
-  assert.ok(html.includes('id="logout-btn"'), "Masthead must expose logout");
+  assert.ok(!html.includes('<header class="header">'), "Standalone masthead header must be gone");
+  assert.ok(html.includes('id="clients-title"'), "Clients ledger tile must stay");
+  assert.ok(html.includes('id="logout-btn"'), "Logout must live in the clients tile header");
+  assert.ok(html.includes('id="add-client-btn"'), "Create-client button must live in the clients tile header");
 });
 
 test("Dashboard: audit ledger tile reuses /api/logs with client-side filter", async () => {
@@ -496,6 +498,51 @@ test("Dashboard: audit viewer defaults to signal-only", async () => {
   const html = await res.text();
   assert.ok(html.includes('value="signal"'), "Audit filter must offer a signal-only default");
   assert.ok(html.includes("/api/logs?limit=200"), "Viewer must pull a deeper window for signal filtering");
+});
+
+test("Dashboard: noisy chronological timeline section is removed", async () => {
+  // Operator decision: the per-event timeline (mostly UNKNOWN_RESPONSE noise with
+  // broken mobile layout) goes away; the multi-day history + report tiles stay.
+  const env = createMockEnv();
+  const res = await worker.fetch(new Request("https://aegisflow.local/"), env, {} as any);
+  const html = await res.text();
+  assert.ok(!html.includes('id="timeline-rows"'), "Timeline table must be gone from the markup");
+  assert.ok(!html.includes('id="timeline-disclaimer"'), "Timeline disclaimer must go with it");
+  assert.ok(html.includes('id="history-rows"'), "Multi-day history must stay");
+});
+
+test("Dashboard: v7.4 operator-power markup (search, pills, budget, health)", async () => {
+  const env = createMockEnv();
+  const res = await worker.fetch(new Request("https://aegisflow.local/"), env, {} as any);
+  const html = await res.text();
+  for (const id of ["client-search", "client-pills", "client-count", "budget-fill", "budget-text", "health-rows"]) {
+    assert.ok(html.includes(`id="${id}"`), `Dashboard must include #${id}`);
+  }
+  assert.ok(html.includes("renderClients"), "Client filtering must run through renderClients()");
+});
+
+test("API Endpoint: GET /api/status exposes bounded recentFailures", async () => {
+  const env = createMockEnv();
+  const stores = (env as any).__stores;
+  const fail = (i: number, t: string) => stores.logs.push({
+    id: 100 + i, job_id: "job_9", client_id: "c9", event_type: t, duration_ms: 100,
+    details: JSON.stringify({ error: "boom-" + i, week: "2026-09-15", classification: "TRANSIENT_ERROR" }),
+    created_at: "2026-09-08 08:0" + i + ":00",
+  });
+  ["BOOKING_FAILED", "BOOKING_FAILED", "SLOT_GONE_PRE_LAUNCH", "PRE_SUBMIT_BLOCKED", "BOOKING_RETRY", "BOOKING_FAILED", "BOOKING_FAILED"].forEach((t, i) => fail(i, t));
+  stores.logs.push({ id: 200, job_id: "job_9", client_id: "c9", event_type: "NO_APPOINTMENT", duration_ms: 0, details: "{}", created_at: "2026-09-08 08:09:00" });
+  stores.logs.push({ id: 201, job_id: "job_9", client_id: "c9", event_type: "UNKNOWN_RESPONSE", duration_ms: 0, details: "{}", created_at: "2026-09-08 08:10:00" });
+  const res = await worker.fetch(new Request("https://aegisflow.local/api/status"), env, {} as any);
+  assert.strictEqual(res.status, 200);
+  const body = await res.json() as any;
+  assert.ok(Array.isArray(body.recentFailures), "status must carry recentFailures");
+  assert.strictEqual(body.recentFailures.length, 5, "recentFailures must be capped at 5");
+  const allowed = new Set(["BOOKING_FAILED", "SLOT_GONE_PRE_LAUNCH", "PRE_SUBMIT_BLOCKED", "BOOKING_RETRY"]);
+  for (const f of body.recentFailures) {
+    assert.ok(allowed.has(f.event_type), `noise type ${f.event_type} must not appear`);
+    assert.ok(typeof f.message === "string" && f.message.length > 0, "each failure needs a plain-language message");
+    assert.ok(f.created_at, "each failure needs its timestamp");
+  }
 });
 
 test("Dashboard: CRUD affordances wired", async () => {
