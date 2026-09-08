@@ -1,8 +1,8 @@
-# Product Requirements Document (PRD) — BMEIA Appointment Automation Platform (opran-booking)
+# Product Requirements Document (PRD) — BMEIA Appointment Automation Platform (aegisflow)
 
 ## Table of Contents
 
-- [Product Requirements Document (PRD) — BMEIA Appointment Automation Platform (opran-booking)](#table-of-contents)
+- [Product Requirements Document (PRD) — BMEIA Appointment Automation Platform (aegisflow)](#table-of-contents)
   - [1. Executive Summary & Product Vision](./1-executive-summary-product-vision.md)
   - [2. Locked Strategic Decisions (D1–D8)](./2-locked-strategic-decisions-d1d8.md)
   - [3. User Persona & Scope Boundaries](./3-user-persona-scope-boundaries.md)

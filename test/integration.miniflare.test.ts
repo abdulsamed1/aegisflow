@@ -104,7 +104,7 @@ async function startWorker(options?: { durablesPersist?: string; noSecret?: bool
   for (const stmt of SCHEMA_SQL.split(";").map((s) => s.trim()).filter(Boolean)) {
     await db.prepare(stmt).run();
   }
-  
+
   const originalDispatch = mf.dispatchFetch.bind(mf);
   mf.dispatchFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const headers = new Headers(init?.headers);
@@ -113,7 +113,7 @@ async function startWorker(options?: { durablesPersist?: string; noSecret?: bool
     }
     return originalDispatch(input, { ...init, headers });
   };
-  
+
   return mf;
 }
 
@@ -131,7 +131,7 @@ before(() => {
 
 after(async () => {
   for (const mf of instances) {
-    try { await mf.dispose(); } catch {}
+    try { await mf.dispose(); } catch { }
   }
   instances = [];
 });
@@ -139,7 +139,7 @@ after(async () => {
 test("Integration: client creation encrypts PII at rest and returns masked data on read", async () => {
   const mf = await startWorker();
 
-  const createRes = await mf.dispatchFetch("https://opran.local/api/clients", {
+  const createRes = await mf.dispatchFetch("https://aegisflow.local/api/clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -181,7 +181,7 @@ test("Integration: client creation encrypts PII at rest and returns masked data 
   const allowedDays = JSON.parse(jobRow.allowed_days);
   assert.strictEqual(allowedDays.length, 7, "Legacy allowed_days must carry all 7 days");
 
-  const listRes = await mf.dispatchFetch("https://opran.local/api/clients");
+  const listRes = await mf.dispatchFetch("https://aegisflow.local/api/clients");
   assert.strictEqual(listRes.status, 200);
   const clients = await listRes.json() as any[];
   assert.strictEqual(clients.length, 1);
@@ -200,7 +200,7 @@ test("Integration: client creation encrypts PII at rest and returns masked data 
 test("Integration: missing PII_ENCRYPTION_KEY fails closed with 500", async () => {
   const mf = await startWorker({ noSecret: true });
 
-  const res = await mf.dispatchFetch("https://opran.local/api/clients", {
+  const res = await mf.dispatchFetch("https://aegisflow.local/api/clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ firstName: "A", lastName: "B", passportNumber: "X1" })
@@ -209,7 +209,7 @@ test("Integration: missing PII_ENCRYPTION_KEY fails closed with 500", async () =
   const body = await res.json() as any;
   assert.match(body.error, /PII_ENCRYPTION_KEY/);
 
-  const listRes = await mf.dispatchFetch("https://opran.local/api/clients");
+  const listRes = await mf.dispatchFetch("https://aegisflow.local/api/clients");
   assert.strictEqual(listRes.status, 500, "GET must also fail closed without the secret");
 });
 
@@ -283,7 +283,7 @@ test("Integration: Durable Object lock lifecycle (acquire, reject, release, seal
 });
 
 test("Integration: stale lock (crashed execution) expires and allows takeover after TTL", async () => {
-  const persistDir = mkdtempSync(join(tmpdir(), "opran-do-"));
+  const persistDir = mkdtempSync(join(tmpdir(), "aegisflow-do-"));
 
   const mf1 = await startWorker({ durablesPersist: persistDir });
   const ns1 = await mf1.getDurableObjectNamespace("JOB_LOCK");
@@ -318,7 +318,7 @@ test("Integration: stale lock (crashed execution) expires and allows takeover af
 test("Integration: PUT /api/clients/:id round-trips updates, keeps passport on empty", async () => {
   const mf = await startWorker();
 
-  const createRes = await mf.dispatchFetch("https://opran.local/api/clients", {
+  const createRes = await mf.dispatchFetch("https://aegisflow.local/api/clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -338,7 +338,7 @@ test("Integration: PUT /api/clients/:id round-trips updates, keeps passport on e
     .bind(created.clientId).first<any>();
   assert.strictEqual(before.calendar_id, 44281520, "Bachelor must map to 44281520 before update");
 
-  const putRes = await mf.dispatchFetch(`https://opran.local/api/clients/${created.clientId}`, {
+  const putRes = await mf.dispatchFetch(`https://aegisflow.local/api/clients/${created.clientId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -366,14 +366,14 @@ test("Integration: PUT /api/clients/:id round-trips updates, keeps passport on e
   assert.ok(jobRow, "Job must survive the update");
   assert.strictEqual(jobRow.status, "ACTIVE", "Update must not touch job state");
 
-  const listRes = await mf.dispatchFetch("https://opran.local/api/clients");
+  const listRes = await mf.dispatchFetch("https://aegisflow.local/api/clients");
   const clients = await listRes.json() as any[];
   assert.strictEqual(clients[0].firstName, "Khaled", "GET must decrypt the updated first name");
   assert.strictEqual(clients[0].street, "9 Nile Street", "GET must decrypt the updated street");
 });
 test("Integration: DELETE /api/clients/:id cascades job and writes audit row", async () => {
   const mf = await startWorker();
-  const createRes = await mf.dispatchFetch("https://opran.local/api/clients", {
+  const createRes = await mf.dispatchFetch("https://aegisflow.local/api/clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -388,7 +388,7 @@ test("Integration: DELETE /api/clients/:id cascades job and writes audit row", a
   });
   const created = await createRes.json() as any;
 
-  const delRes = await mf.dispatchFetch(`https://opran.local/api/clients/${created.clientId}`, {
+  const delRes = await mf.dispatchFetch(`https://aegisflow.local/api/clients/${created.clientId}`, {
     method: "DELETE"
   });
   assert.strictEqual(delRes.status, 200, await delRes.text());
@@ -405,7 +405,7 @@ test("Integration: DELETE /api/clients/:id cascades job and writes audit row", a
 
 test("Integration: DELETE /api/clients/:id returns 403 for BOOKED job", async () => {
   const mf = await startWorker();
-  const createRes = await mf.dispatchFetch("https://opran.local/api/clients", {
+  const createRes = await mf.dispatchFetch("https://aegisflow.local/api/clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -423,7 +423,7 @@ test("Integration: DELETE /api/clients/:id returns 403 for BOOKED job", async ()
   const db = await mf.getD1Database("DB");
   await db.prepare("UPDATE jobs SET status = 'BOOKED' WHERE client_id = ?").bind(created.clientId).run();
 
-  const delRes = await mf.dispatchFetch(`https://opran.local/api/clients/${created.clientId}`, {
+  const delRes = await mf.dispatchFetch(`https://aegisflow.local/api/clients/${created.clientId}`, {
     method: "DELETE"
   });
   assert.strictEqual(delRes.status, 403, await delRes.text());
@@ -433,7 +433,7 @@ test("Integration: DELETE /api/clients/:id returns 403 for BOOKED job", async ()
 
 test("Integration: DELETE succeeds when the client has scheduler audit rows (FK detach)", async () => {
   const mf = await startWorker();
-  const createRes = await mf.dispatchFetch("https://opran.local/api/clients", {
+  const createRes = await mf.dispatchFetch("https://aegisflow.local/api/clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -452,7 +452,7 @@ test("Integration: DELETE succeeds when the client has scheduler audit rows (FK 
   await db.prepare("INSERT INTO audit_logs (job_id, client_id, event_type) VALUES (?, ?, 'NO_APPOINTMENT')")
     .bind(created.jobId, created.clientId).run();
 
-  const delRes = await mf.dispatchFetch(`https://opran.local/api/clients/${created.clientId}`, {
+  const delRes = await mf.dispatchFetch(`https://aegisflow.local/api/clients/${created.clientId}`, {
     method: "DELETE"
   });
   assert.strictEqual(delRes.status, 200, await delRes.text());
@@ -471,7 +471,7 @@ test("Integration: invalid category value is rejected by Worker API with 400, an
   const mf = await startWorker();
 
   // 1. Worker API endpoint validation: returns 400 Bad Request
-  const res = await mf.dispatchFetch("https://opran.local/api/clients", {
+  const res = await mf.dispatchFetch("https://aegisflow.local/api/clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -505,7 +505,7 @@ test("Integration: invalid category value is rejected by Worker API with 400, an
 
 test("Integration: DELETE returns 423 when DO lock is held mid-flight", async () => {
   const mf = await startWorker();
-  const createRes = await mf.dispatchFetch("https://opran.local/api/clients", {
+  const createRes = await mf.dispatchFetch("https://aegisflow.local/api/clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -524,11 +524,11 @@ test("Integration: DELETE returns 423 when DO lock is held mid-flight", async ()
   const acq = await stub.fetch("https://lock/acquire");
   assert.strictEqual(acq.status, 200, "setup: lock must be held");
 
-  const delLocked = await mf.dispatchFetch(`https://opran.local/api/clients/${created.clientId}`, { method: "DELETE" });
+  const delLocked = await mf.dispatchFetch(`https://aegisflow.local/api/clients/${created.clientId}`, { method: "DELETE" });
   assert.strictEqual(delLocked.status, 423, "DELETE while DO lock held must be 423");
 
   await stub.fetch("https://lock/release");
-  const delOk = await mf.dispatchFetch(`https://opran.local/api/clients/${created.clientId}`, { method: "DELETE" });
+  const delOk = await mf.dispatchFetch(`https://aegisflow.local/api/clients/${created.clientId}`, { method: "DELETE" });
   assert.strictEqual(delOk.status, 200, "DELETE after release must succeed");
 });
 
@@ -559,5 +559,41 @@ test("Integration: DO /status reports locked/sealed correctly", async () => {
   assert.strictEqual(s.locked, false);
   const r = await stub.fetch("https://lock/acquire");
   assert.strictEqual(r.status, 409);
+});
+
+test("Integration: GET /api/daily-report returns timeline, multi-day history, and accurate attribution", async () => {
+  const mf = await startWorker();
+  const db = await mf.getD1Database("DB");
+
+  // Seed client and job
+  await db.prepare(`INSERT INTO clients (id, first_name_enc, last_name_enc, dob, nationality, passport_number_enc, passport_expiry, email_enc, phone_enc, family_name_at_birth_enc, place_of_birth, country_of_birth, nationality_at_birth, address_street_enc, address_postal_code_enc, address_city_enc, passport_issue_date, passport_issuing_country, category, calendar_id) VALUES ('c_rep', 'enc', 'enc', '1990-01-01', 'EG', 'enc', '2030-01-01', 'enc', 'enc', 'enc', 'Cairo', 'Egypt', 'EG', 'enc', 'enc', 'enc', '2020-01-01', 'Egypt', 'Bachelor', 44281520)`).run();
+  await db.prepare(`INSERT INTO jobs (id, client_id, enabled, status, start_date, end_date, allowed_days) VALUES ('j_rep', 'c_rep', 1, 'ACTIVE', '2026-09-01', '2026-11-01', '1,2,3,4,5')`).run();
+
+  // Seed audit_logs with detection, started, submitted, booked
+  await db.prepare(`INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details, created_at) VALUES ('j_rep', 'c_rep', 'APPOINTMENT_FOUND', 50, '{"week":"9/20/2026"}', CURRENT_TIMESTAMP)`).run();
+  await db.prepare(`INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details, created_at) VALUES ('j_rep', 'c_rep', 'BOOKING_STARTED', 0, '{"week":"9/20/2026","correlationId":"c-123","attempt":1}', CURRENT_TIMESTAMP)`).run();
+  await db.prepare(`INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details, created_at) VALUES ('j_rep', 'c_rep', 'SUBMITTED', 1500, '{"week":"9/20/2026","correlationId":"c-123","attempt":1}', CURRENT_TIMESTAMP)`).run();
+  await db.prepare(`INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details, created_at) VALUES ('j_rep', 'c_rep', 'BOOKED', 2000, '{"referenceId":"GESX-INT-TEST","week":"9/20/2026","correlationId":"c-123","attempt":1}', CURRENT_TIMESTAMP)`).run();
+
+  const res = await mf.dispatchFetch("https://aegisflow.local/api/daily-report");
+  assert.strictEqual(res.status, 200);
+  const data = await res.json() as any;
+
+  assert.strictEqual(data.was_open, true);
+  assert.strictEqual(data.opportunities_found, 1);
+  assert.strictEqual(data.opportunities_booked, 1);
+  assert.strictEqual(data.opportunities_missed, 0);
+  assert.strictEqual(data.technical_failures, 0);
+
+  // Timeline verification
+  assert.ok(Array.isArray(data.timeline), "timeline must be an array");
+  assert.strictEqual(data.timeline.length, 4);
+  assert.strictEqual(data.timeline[3].event_type, "BOOKED");
+  assert.strictEqual(data.timeline[3].correlation_id, "c-123");
+
+  // History verification
+  assert.ok(Array.isArray(data.history), "history must be an array");
+  assert.ok(data.history.length >= 1, "history must contain at least today");
+  assert.strictEqual(data.history[0].opportunities_booked, 1);
 });
 

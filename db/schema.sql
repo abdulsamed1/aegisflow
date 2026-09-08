@@ -1,4 +1,4 @@
--- opran-booking D1 schema (single source: docs/architecture.md section 3)
+-- aegisflow D1 schema (single source: docs/architecture.md section 3)
 -- Note: clients table intentionally has NO status column; job status lives only in jobs
 -- (PRD section 4: dual status flags are prohibited).
 

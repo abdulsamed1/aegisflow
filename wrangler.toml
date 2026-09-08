@@ -1,4 +1,4 @@
-name = "opran-booking"
+name = "aegisflow"
 main = "src/index.ts"
 account_id = "b3f785c015c3e0fbbac7af497d188022"
 compatibility_date = "2025-09-15"
@@ -14,7 +14,7 @@ SCAN_BURSTS = "2" # ponytail: Free cap 50 subrequests/invocation → 2*8*3≈48 
 # Cloudflare D1 Database Binding
 [[d1_databases]]
 binding = "DB"
-database_name = "opran-booking-db"
+database_name = "aegisflow-db"
 database_id = "d4a096e4-dc38-4c21-9c42-31678abf1672"
 
 # Cloudflare Durable Objects Binding

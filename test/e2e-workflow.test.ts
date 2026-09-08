@@ -34,10 +34,10 @@ test("E2E Workflow: Dashboard HTML serves without fast-path latency hype", async
     SESSION_KV: {} as any,
     MYBROWSER: {} as any,
   };
-  const req = new Request("https://opran-booking.local/");
+  const req = new Request("https://aegisflow.local/");
   const res = await worker.fetch(req, env, {} as any);
   const html = await res.text();
-  assert.ok(html.includes("أوبيران لأتمتة الحجوزات"));
+  assert.ok(html.includes("aegisflow لأتمتة الحجوزات"));
   assert.ok(!html.includes("DRY-RUN"), "DRY-RUN badge must be removed from dashboard");
   assert.ok(!html.includes("val-cairo"), "Cairo time card must be removed from dashboard");
   assert.ok(!html.includes("<10ms"), "Dashboard must not advertise unverified latency claims");

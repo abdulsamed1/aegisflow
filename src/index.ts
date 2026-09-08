@@ -1,6 +1,6 @@
 import { scanAvailability, getSessionCookie } from "./scanner";
 import { getCairoTimeInfo, getCairoDateString, rollingMondays, SCHEDULER_PICK_QUERY } from "./scheduler";
-import { aggregateDailyReport, filterRowsByCairoDay } from "./daily-report";
+import { aggregateDailyReport, filterRowsByCairoDay, summarizePriorCairoDays } from "./daily-report";
 import { sendTelegramNotification } from "./telegram";
 import { JobLockDO } from "./lock";
 import { encryptPII, decryptPII, maskPassport } from "./crypto";
@@ -50,7 +50,7 @@ function secretErrorResponse(): Response {
 async function sessionToken(adminKey: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
-    new TextEncoder().encode(`opran-session-v1|${adminKey}`)
+    new TextEncoder().encode(`aegisflow-session-v1|${adminKey}`)
   );
   return btoa(String.fromCharCode(...new Uint8Array(digest)));
 }
@@ -88,9 +88,9 @@ export default {
       // --- Authentication Middleware ---
       const isProduction = env.ENVIRONMENT === "production";
       if (isProduction && !env.ADMIN_API_KEY) {
-         return new Response(JSON.stringify({ error: "ADMIN_API_KEY not configured in production" }), {
-           status: 500, headers: { "Content-Type": "application/json", ...corsHeaders }
-         });
+        return new Response(JSON.stringify({ error: "ADMIN_API_KEY not configured in production" }), {
+          status: 500, headers: { "Content-Type": "application/json", ...corsHeaders }
+        });
       }
 
       // ponytail: no custom rate limiter — Access edge (layer 1) + 256-bit key entropy cover brute force
@@ -99,7 +99,7 @@ export default {
       if (env.ADMIN_API_KEY) {
         const key = env.ADMIN_API_KEY;
         const expectedSession = await sessionToken(key);
-        const cookieMatch = (request.headers.get("Cookie") || "").match(/(?:^|;\s*)__Host-opran_admin_token=([^;]+)/);
+        const cookieMatch = (request.headers.get("Cookie") || "").match(/(?:^|;\s*)__Host-aegisflow_admin_token=([^;]+)/);
         const cookieToken = cookieMatch ? cookieMatch[1] : null;
 
         let isAuthenticated = cookieToken !== null && safeEqual(cookieToken, expectedSession);
@@ -114,7 +114,7 @@ export default {
             try {
               const [_, pass] = atob(authHeader.substring(6)).split(":");
               isAuthenticated = safeEqual(pass, key);
-            } catch (e) {}
+            } catch (e) { }
           }
           if (isAuthenticated) viaHeader = true;
         }
@@ -133,7 +133,7 @@ export default {
             return new Response("Unauthorized", {
               status: 401,
               headers: {
-                "WWW-Authenticate": 'Basic realm="Opran Booking Admin"',
+                "WWW-Authenticate": 'Basic realm="aegisflow Booking Admin"',
                 "Content-Type": "text/plain"
               }
             });
@@ -146,7 +146,7 @@ export default {
 
         // ponytail: browser logged in via header → upgrade to session cookie so the panel's fetch() is authenticated
         if (viaHeader) {
-          cookieToSet = `__Host-opran_admin_token=${expectedSession}; HttpOnly; Secure; Path=/; Max-Age=86400; SameSite=Strict`;
+          cookieToSet = `__Host-aegisflow_admin_token=${expectedSession}; HttpOnly; Secure; Path=/; Max-Age=86400; SameSite=Strict`;
         }
       }
       // --- End Authentication Middleware ---
@@ -452,7 +452,7 @@ export default {
                 headers: { "Content-Type": "application/json", ...corsHeaders }
               });
             }
-          } catch {}
+          } catch { }
         }
 
         // ponytail: detach scheduler audit rows first — they FK-reference the client and would block the delete
@@ -489,7 +489,7 @@ export default {
         });
       }
 
-      // API: Daily report — ponytail: minimal Cairo-bucketed dedup
+      // API: Daily report — ponytail: Cairo-bucketed dedup + timeline + multi-day history
       if (path === "/api/daily-report" && request.method === "GET") {
         const dateParam = url.searchParams.get("date");
         let cairoDay = getCairoDateString(new Date());
@@ -497,13 +497,16 @@ export default {
           const d = new Date(dateParam + "T12:00:00Z");
           if (!Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === dateParam) cairoDay = dateParam;
         }
-        const { results } = await env.DB.prepare("SELECT job_id, client_id, event_type, details, created_at FROM audit_logs WHERE created_at >= datetime('now', '-8 days') ORDER BY created_at ASC").all<any>();
-        const cairoRows = filterRowsByCairoDay(results || [], cairoDay);
+        const { results } = await env.DB.prepare("SELECT id, job_id, client_id, event_type, duration_ms, details, created_at FROM audit_logs WHERE created_at >= datetime('now', '-8 days') ORDER BY created_at ASC").all<any>();
+        const allRows = results || [];
+        const cairoRows = filterRowsByCairoDay(allRows, cairoDay);
         const agg = aggregateDailyReport(cairoRows as any, cairoDay);
+        const history = summarizePriorCairoDays(allRows);
         return new Response(JSON.stringify({
           ...agg,
+          history,
           limitation: "distinct per-slot count NOT derivable — scanner only reports grid non-empty (week granularity, see AD-4/G0 §5). Counting by job+week dedup; slot times within grid are not parsed. KAIRO SLOTS grid markup still UNVERIFIED (11.md #1/#5).",
-          definition: "missed = APPOINTMENT_FOUND deduped by job+week on this Cairo day that later emitted SLOT_GONE_PRE_LAUNCH or BOOKING_FAILED without a BOOKED for same job+week (definition B).",
+          definition: "missed = APPOINTMENT_FOUND deduped by job+week on this Cairo day that later emitted SLOT_GONE_PRE_LAUNCH or non-transient BOOKING_FAILED without a BOOKED for same job+week (definition B).",
           timezone: "Africa/Cairo bucketing via getCairoDateString; audit_logs.created_at is UTC CURRENT_TIMESTAMP."
         }), { headers: { "Content-Type": "application/json", ...corsHeaders } });
       }
@@ -521,7 +524,7 @@ export default {
         return new Response(JSON.stringify({ success: true }), {
           headers: {
             "Content-Type": "application/json",
-            "Set-Cookie": "__Host-opran_admin_token=; HttpOnly; Secure; Path=/; Max-Age=0; SameSite=Strict"
+            "Set-Cookie": "__Host-aegisflow_admin_token=; HttpOnly; Secure; Path=/; Max-Age=0; SameSite=Strict"
           }
         });
       }
@@ -586,6 +589,12 @@ export default {
     const bgTasks: Promise<any>[] = [];
 
     await Promise.all(jobs.map(async (job) => {
+      // Hard invariant: Only Bachelor category and canonical calendar ID permitted (Bachelor-only lock)
+      if (job.category !== "Bachelor" || job.calendar_id !== CANONICAL_CALENDAR_ID) {
+        console.error(`[CRITICAL] Job ${job.id} skipped: Non-Bachelor category '${job.category}' or non-canonical calendar '${job.calendar_id}'`);
+        return;
+      }
+
       // ponytail: 2×/min = every 30s coverage; 2*8*660*3 jobs ≈31k/day <200k free (Free cap 50 subrequests/invocation — 6× would exceed)
       const bursts = parseScanBursts(env.SCAN_BURSTS, env.PLAN_TIER);
       let slotResult: Awaited<ReturnType<typeof scanAvailability>> | undefined;
@@ -617,7 +626,8 @@ export default {
       if (!slotResult) return;
 
       const slotMonday = slotResult.matchedMonday;
-      console.log(`Slot detected for Job ${job.id} on week ${slotMonday}. Acquiring DO lock...`);
+      const correlationId = `${job.id}-${slotMonday.replace(/[^a-zA-Z0-9]/g, '')}-${Date.now().toString(36)}`;
+      console.log(`Slot detected for Job ${job.id} on week ${slotMonday} [correlationId: ${correlationId}]. Acquiring DO lock...`);
 
       const doId = env.JOB_LOCK.idFromName(job.id);
       const doStub = env.JOB_LOCK.get(doId);
@@ -690,7 +700,13 @@ export default {
         bgTasks.push(env.DB.prepare(
           `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
            VALUES (?, ?, 'SLOT_GONE_PRE_LAUNCH', ?, ?)`
-        ).bind(job.id, job.client_id, reverify.durationMs, JSON.stringify({ week: slotMonday, status: reverify.status })).run());
+        ).bind(job.id, job.client_id, reverify.durationMs, JSON.stringify({
+          week: slotMonday,
+          status: reverify.status,
+          correlationId,
+          attempt: 1,
+          classification: "SLOT_GONE"
+        })).run());
         return;
       }
 
@@ -705,12 +721,27 @@ export default {
         bgTasks.push(env.DB.prepare(
           `INSERT INTO audit_logs (job_id, client_id, event_type, details)
            VALUES (?, ?, 'PRE_SUBMIT_BLOCKED', ?)`
-        ).bind(job.id, job.client_id, JSON.stringify({ blockers: gate.blockers })).run());
+        ).bind(job.id, job.client_id, JSON.stringify({
+          blockers: gate.blockers,
+          correlationId,
+          attempt: 1,
+          classification: "VALIDATION_ERROR"
+        })).run());
         return;
       }
 
+      // Log booking start with correlation ID and attempt 1
+      bgTasks.push(env.DB.prepare(
+        `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
+         VALUES (?, ?, 'BOOKING_STARTED', 0, ?)`
+      ).bind(job.id, job.client_id, JSON.stringify({
+        week: slotMonday,
+        correlationId,
+        attempt: 1
+      })).run());
+
       // Playwright wizard is the single real booking path (London evidence: 31 fields, BDC_*, C65P dynamic)
-      console.log(`[BOOKING] Launching Playwright wizard for Job ${job.id} week ${slotMonday}`);
+      console.log(`[BOOKING] Launching Playwright wizard for Job ${job.id} week ${slotMonday} [attempt 1]`);
       let pwRes = await executePlaywrightFallback(env.MYBROWSER, decryptedClient, {
         startTime: slotMonday,
         captchaApiKey: env.CAPTCHA_API_KEY,
@@ -722,6 +753,19 @@ export default {
         `INSERT INTO daily_metrics (date, total_browser_seconds) VALUES (DATE('now'), ?)
          ON CONFLICT(date) DO UPDATE SET total_browser_seconds = total_browser_seconds + ?`
       ).bind(pwRes.durationSeconds, pwRes.durationSeconds).run());
+
+      if (pwRes.submitted || pwRes.success) {
+        bgTasks.push(env.DB.prepare(
+          `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
+           VALUES (?, ?, 'SUBMITTED', ?, ?)`
+        ).bind(job.id, job.client_id, Math.round(pwRes.durationSeconds * 1000), JSON.stringify({
+          week: slotMonday,
+          slot: pwRes.selectedSlot,
+          stage: pwRes.stageReached,
+          correlationId,
+          attempt: 1
+        })).run());
+      }
 
       if (pwRes.success && pwRes.referenceId) {
         console.log(`Booking completed for Job ${job.id}. Ref: ${pwRes.referenceId}`);
@@ -744,7 +788,14 @@ export default {
         bgTasks.push(env.DB.prepare(
           `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
            VALUES (?, ?, 'BOOKED', ?, ?)`
-        ).bind(job.id, job.client_id, Math.round(pwRes.durationSeconds * 1000), JSON.stringify({ referenceId: pwRes.referenceId, week: slotMonday })).run());
+        ).bind(job.id, job.client_id, Math.round(pwRes.durationSeconds * 1000), JSON.stringify({
+          referenceId: pwRes.referenceId,
+          week: slotMonday,
+          slot: pwRes.selectedSlot,
+          stage: pwRes.stageReached,
+          correlationId,
+          attempt: 1
+        })).run());
         return;
       }
 
@@ -759,7 +810,24 @@ export default {
         bgTasks.push(env.DB.prepare(
           `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
            VALUES (?, ?, 'BOOKING_RETRY', ?, ?)`
-        ).bind(job.id, job.client_id, Math.round(pwRes.durationSeconds * 1000), JSON.stringify({ error: pwRes.errorMessage, week: slotMonday })).run());
+        ).bind(job.id, job.client_id, Math.round(pwRes.durationSeconds * 1000), JSON.stringify({
+          error: pwRes.errorMessage,
+          classification: pwRes.classification || "UNKNOWN",
+          stage: pwRes.stageReached,
+          slot: pwRes.selectedSlot,
+          week: slotMonday,
+          correlationId,
+          attempt: 1
+        })).run());
+
+        bgTasks.push(env.DB.prepare(
+          `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
+           VALUES (?, ?, 'BOOKING_STARTED', 0, ?)`
+        ).bind(job.id, job.client_id, JSON.stringify({
+          week: slotMonday,
+          correlationId,
+          attempt: 2
+        })).run());
 
         const pwRes2 = await executePlaywrightFallback(env.MYBROWSER, decryptedClient, {
           startTime: slotMonday,
@@ -771,6 +839,19 @@ export default {
           `INSERT INTO daily_metrics (date, total_browser_seconds) VALUES (DATE('now'), ?)
            ON CONFLICT(date) DO UPDATE SET total_browser_seconds = total_browser_seconds + ?`
         ).bind(pwRes2.durationSeconds, pwRes2.durationSeconds).run());
+
+        if (pwRes2.submitted || pwRes2.success) {
+          bgTasks.push(env.DB.prepare(
+            `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
+             VALUES (?, ?, 'SUBMITTED', ?, ?)`
+          ).bind(job.id, job.client_id, Math.round(pwRes2.durationSeconds * 1000), JSON.stringify({
+            week: slotMonday,
+            slot: pwRes2.selectedSlot,
+            stage: pwRes2.stageReached,
+            correlationId,
+            attempt: 2
+          })).run());
+        }
 
         if (pwRes2.success && pwRes2.referenceId) {
           console.log(`Booking completed on retry for Job ${job.id}. Ref: ${pwRes2.referenceId}`);
@@ -792,7 +873,15 @@ export default {
           bgTasks.push(env.DB.prepare(
             `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
              VALUES (?, ?, 'BOOKED', ?, ?)`
-          ).bind(job.id, job.client_id, Math.round(pwRes2.durationSeconds * 1000), JSON.stringify({ referenceId: pwRes2.referenceId, week: slotMonday, retry: true })).run());
+          ).bind(job.id, job.client_id, Math.round(pwRes2.durationSeconds * 1000), JSON.stringify({
+            referenceId: pwRes2.referenceId,
+            week: slotMonday,
+            slot: pwRes2.selectedSlot,
+            stage: pwRes2.stageReached,
+            retry: true,
+            correlationId,
+            attempt: 2
+          })).run());
           return;
         }
         // Retry also failed — fall through to requeue with last error
@@ -809,7 +898,16 @@ export default {
       bgTasks.push(env.DB.prepare(
         `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
          VALUES (?, ?, 'BOOKING_FAILED', ?, ?)`
-      ).bind(job.id, job.client_id, Math.round(totalBrowserSeconds * 1000), JSON.stringify({ error: pwRes.errorMessage, week: slotMonday, totalBrowserSeconds })).run());
+      ).bind(job.id, job.client_id, Math.round(totalBrowserSeconds * 1000), JSON.stringify({
+        error: pwRes.errorMessage,
+        classification: pwRes.classification || "UNKNOWN",
+        stage: pwRes.stageReached,
+        slot: pwRes.selectedSlot,
+        week: slotMonday,
+        totalBrowserSeconds,
+        correlationId,
+        attempt: retryDecision === "RETRY" ? 2 : 1
+      })).run());
     }));
 
     ctx.waitUntil(Promise.all(bgTasks));
@@ -822,7 +920,7 @@ function getAdminHTML(): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>نظام أوبيران لأتمتة الحجوزات — لوحة التحكم</title>
+  <title>نظام aegisflow لأتمتة الحجوزات — لوحة التحكم</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -1104,11 +1202,11 @@ function getAdminHTML(): string {
         </div>
       </div>
       <div style="padding:18px 22px; background:var(--bg-card);">
-        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:14px;">
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; margin-bottom:14px;">
           <div class="metric-card" style="padding:16px 14px; display:flex; flex-direction:column; gap:8px;">
             <div class="metric-label">حالة اليوم</div>
             <div id="rep-was-open" style="display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:800; min-height:28px;" aria-live="polite">—</div>
-            <div style="font-size:11px; color:var(--text-dim); line-height:1.4;">هل رُصدت أي شبكة أسبوع بها مواعيد؟</div>
+            <div style="font-size:11px; color:var(--text-dim); line-height:1.4;">هل رُصدت أي مواعيد؟</div>
           </div>
           <div class="metric-card" style="padding:16px 14px;">
             <div class="metric-label">أسابيع بها مواعيد <span title="فرص مميزة: كل مهمة+أسبوع تُحسب مرة واحدة في اليوم مهما تكرر الفحص" style="cursor:help; border-bottom:1px dotted var(--border-strong);">ⓘ</span></div>
@@ -1125,8 +1223,67 @@ function getAdminHTML(): string {
             <div class="metric-val mono" style="color:var(--danger);" id="rep-missed">—</div>
             <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">فُقدت بعد الرصد</div>
           </div>
+          <div class="metric-card" style="padding:16px 14px;">
+            <div class="metric-label">أخطاء تقنية مؤقتة</div>
+            <div class="metric-val mono" style="color:var(--warning);" id="rep-technical">—</div>
+            <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">انقطاع دون ضياع المقعد</div>
+          </div>
         </div>
-        <div id="rep-missed-details" role="status" aria-live="polite" style="font-size:13px; color:var(--text-muted); min-height:22px;"></div>
+        <div id="rep-missed-details" role="status" aria-live="polite" style="font-size:13px; color:var(--text-muted); min-height:22px; margin-bottom:18px;"></div>
+
+        <!-- Chronological Audit Timeline -->
+        <div style="margin-top: 14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+            <h3 style="font-size:14px; font-weight:700; margin:0;">الجدول الزمني للعمليات (التسلسل الزمني ليوم القاهرة المحدد)</h3>
+            <span style="font-size:11px; color:var(--text-dim);">دقة على مستوى الأسبوع · مصدر الحقيقة audit_logs</span>
+          </div>
+          <div id="timeline-disclaimer" style="display:none; font-size:11.5px; color:var(--text-dim); background:rgba(217,138,92,0.08); border:1px solid rgba(217,138,92,0.25); border-radius:6px; padding:8px 12px; margin-bottom:10px;">
+            ℹ <strong>ملاحظة للمشغل:</strong> تظهر بعض السجلات القديمة المنشأة قبل التحديث بدون معرّف ارتباط أو تصنيف تفصيلي — يتم عرض البيانات المتوفرة مع تمييزها كسجلات تاريخية.
+          </div>
+          <div class="table-wrap" style="max-height: 380px; overflow-y: auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:110px;">الوقت (القاهرة)</th>
+                  <th style="width:140px;">الحدث</th>
+                  <th style="width:110px;">الأسبوع</th>
+                  <th style="width:75px;">المحاولة</th>
+                  <th>التفاصيل والرسالة</th>
+                  <th style="width:130px;">معرّف الارتباط</th>
+                </tr>
+              </thead>
+              <tbody id="timeline-rows">
+                <tr><td colspan="6" style="text-align:center; color:var(--text-dim); padding:20px;">جاري تحميل الجدول الزمني...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Multi-Day Cairo History -->
+        <div style="margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border-subtle);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+            <h3 style="font-size:14px; font-weight:700; margin:0;">سجل الأيام السابقة (بتوقيت القاهرة)</h3>
+            <span style="font-size:11px; color:var(--text-dim);">تغطية 8 أيام سابقة من audit_logs</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>تاريخ اليوم</th>
+                  <th>حالة المواعيد</th>
+                  <th>أسابيع مرصودة</th>
+                  <th>تم حجزها</th>
+                  <th>فرص ضائعة</th>
+                  <th>أخطاء تقنية</th>
+                  <th>الإجراء</th>
+                </tr>
+              </thead>
+              <tbody id="history-rows">
+                <tr><td colspan="7" style="text-align:center; color:var(--text-dim); padding:16px;">جاري تحميل السجل التاريخي...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -1419,16 +1576,23 @@ function getAdminHTML(): string {
       // ponytail: default to Cairo today via Intl en-CA, no dep
       const cairoToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Cairo' });
       const date = dateOverride || (input && input.value) || cairoToday;
-      if (input && !input.value) input.value = date;
+      if (input) input.value = date;
       const elWas = document.getElementById('rep-was-open');
       const elFound = document.getElementById('rep-found');
       const elBooked = document.getElementById('rep-booked');
       const elMissed = document.getElementById('rep-missed');
+      const elTechnical = document.getElementById('rep-technical');
       const elDetails = document.getElementById('rep-missed-details');
+      const elTimeline = document.getElementById('timeline-rows');
+      const elHistory = document.getElementById('history-rows');
+      const elDisclaimer = document.getElementById('timeline-disclaimer');
       if (!elWas) return;
       elWas.innerHTML = '<span class="skeleton" style="display:inline-block; width:110px; height:20px;"></span>';
       elFound.textContent = '…'; elBooked.textContent = '…'; elMissed.textContent = '…';
+      if (elTechnical) elTechnical.textContent = '…';
       elDetails.textContent = '';
+      if (elTimeline) elTimeline.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-dim); padding:20px;">جاري تحميل الجدول الزمني...</td></tr>';
+      if (elHistory) elHistory.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-dim); padding:16px;">جاري تحميل السجل التاريخي...</td></tr>';
       try {
         const res = await fetch('/api/daily-report?date=' + encodeURIComponent(date));
         if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -1439,6 +1603,7 @@ function getAdminHTML(): string {
         elFound.textContent = String(d.opportunities_found ?? 0);
         elBooked.textContent = String(d.opportunities_booked ?? 0);
         elMissed.textContent = String(d.opportunities_missed ?? 0);
+        if (elTechnical) elTechnical.textContent = String(d.technical_failures ?? 0);
         if (d.missed_details && d.missed_details.length) {
           elDetails.innerHTML = '<span style="font-weight:700; color:var(--text);">الفرص الضائعة:</span> ' + d.missed_details.map(function(m){
             var w = (m.week||'?').replace(' 12:00:00 AM','');
@@ -1447,6 +1612,62 @@ function getAdminHTML(): string {
         } else {
           elDetails.textContent = d.was_open ? 'لا توجد فرص ضائعة بهذا التعريف لهذا اليوم — كل ما رُصد تم حَجزه أو لا يزال قيد المحاولة.' : 'لم تُرصد أي شبكة أسبوع بها مواعيد في هذا اليوم بتوقيت القاهرة.';
           elDetails.style.color = 'var(--text-dim)';
+        }
+
+        // Render Timeline
+        if (elTimeline) {
+          var hasHistorical = false;
+          if (d.timeline && d.timeline.length) {
+            elTimeline.innerHTML = d.timeline.map(function(t){
+              if (t.is_historical) hasHistorical = true;
+              var badgeCls = 'status-paused';
+              if (t.event_type === 'BOOKED') badgeCls = 'status-active';
+              else if (t.event_type === 'BOOKING_STARTED' || t.event_type === 'SUBMITTED') badgeCls = 'status-active';
+              else if (t.event_type === 'BOOKING_FAILED' || t.event_type === 'SLOT_GONE_PRE_LAUNCH') badgeCls = 'status-cancelled';
+              else if (t.event_type === 'APPOINTMENT_FOUND' || t.event_type === 'BOOKING_RETRY') badgeCls = 'status-scheduled';
+              var cleanW = (t.week || '—').replace(' 12:00:00 AM','');
+              var attemptStr = t.attempt ? ('#' + t.attempt) : '—';
+              var corrStr = t.correlation_id ? ('<span class="mono" style="font-size:11px;" title="' + t.correlation_id + '">' + t.correlation_id.slice(-8) + '</span>') : '<span style="color:var(--text-dim); font-size:11px;">— (سجل قديم)</span>';
+              var histTag = t.is_historical ? ' <span style="font-size:10px; color:var(--text-dim); background:var(--bg); padding:1px 5px; border-radius:4px; border:1px solid var(--border-subtle);">تاريخي</span>' : '';
+              return '<tr>' +
+                '<td class="mono" style="direction:ltr; font-size:12px;">' + (t.cairo_time || '—') + '</td>' +
+                '<td><span class="status-pill ' + badgeCls + '">' + (t.status_badge || t.event_type) + '</span>' + histTag + '</td>' +
+                '<td class="mono" style="direction:ltr; font-size:12px;">' + cleanW + '</td>' +
+                '<td class="mono" style="text-align:center;">' + attemptStr + '</td>' +
+                '<td style="font-size:12.5px;">' + (t.message || '—') + '</td>' +
+                '<td>' + corrStr + '</td>' +
+              '</tr>';
+            }).join('');
+          } else {
+            elTimeline.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-dim); padding:20px;">لا توجد أحداث حجز مسجلة في هذا اليوم بتوقيت القاهرة.</td></tr>';
+          }
+          if (elDisclaimer) {
+            elDisclaimer.style.display = hasHistorical ? 'block' : 'none';
+          }
+        }
+
+        // Render Multi-day History
+        if (elHistory) {
+          if (d.history && d.history.length) {
+            elHistory.innerHTML = d.history.map(function(h){
+              var statusPill = h.was_open
+                ? '<span class="status-pill status-active">مفتوحة ✓</span>'
+                : '<span class="status-pill status-paused">مغلقة</span>';
+              var isSelected = h.date === date;
+              var rowBg = isSelected ? 'background: rgba(179,58,43,0.06); font-weight:700;' : '';
+              return '<tr style="' + rowBg + '">' +
+                '<td class="mono" style="direction:ltr;">' + h.date + (isSelected ? ' (الحالي)' : '') + '</td>' +
+                '<td>' + statusPill + '</td>' +
+                '<td class="mono">' + h.opportunities_found + '</td>' +
+                '<td class="mono" style="color:var(--success);">' + h.opportunities_booked + '</td>' +
+                '<td class="mono" style="color:var(--danger);">' + h.opportunities_missed + '</td>' +
+                '<td class="mono" style="color:var(--warning);">' + h.technical_failures + '</td>' +
+                '<td><button class="btn btn-outline-light btn-sm" onclick="loadDailyReport(\'' + h.date + '\')">عرض هذا اليوم</button></td>' +
+              '</tr>';
+            }).join('');
+          } else {
+            elHistory.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-dim); padding:16px;">لا توجد سجلات للأيام السابقة.</td></tr>';
+          }
         }
       } catch (err) {
         elDetails.textContent = 'تعذر تحميل التقرير: ' + (err && err.message ? err.message : err);

@@ -73,6 +73,7 @@ export const SCHEDULER_PICK_QUERY = `
   JOIN clients ON jobs.client_id = clients.id
   WHERE jobs.enabled = 1
     AND jobs.status = 'ACTIVE'
+    AND clients.category = 'Bachelor'
     AND clients.calendar_id = ${CANONICAL_CALENDAR_ID}
     AND (jobs.backoff_until IS NULL OR jobs.backoff_until <= CURRENT_TIMESTAMP)
   ORDER BY jobs.last_check ASC

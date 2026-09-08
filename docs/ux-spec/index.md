@@ -1,8 +1,8 @@
-# UX & UI Specification — Single Operator Admin Panel (opran-booking)
+# UX & UI Specification — Single Operator Admin Panel (aegisflow)
 
 ## Table of Contents
 
-- [UX & UI Specification — Single Operator Admin Panel (opran-booking)](#table-of-contents)
+- [UX & UI Specification — Single Operator Admin Panel (aegisflow)](#table-of-contents)
   - [0. Revision Log](./0-revision-log.md)
   - [1. Design System](./1-design-system.md)
     - [1.1 Color Palette (shipped tokens —  , v6 Paper Dossier)](./1-design-system.md#11-color-palette-shipped-tokens-v6-paper-dossier)

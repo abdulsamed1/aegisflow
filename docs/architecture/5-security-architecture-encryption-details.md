@@ -9,18 +9,18 @@
 ## 5.2 Dual-Layer Authentication — Audited 2026-08-21, Hardened 2026-08-21 (src/index.ts:36-124)
 
 **Layer 1 — Cloudflare Access (Edge, outside Worker code):**
-- Protects the **whole Worker domain** (`opran-booking.maakebda.workers.dev`, path `/*`) — verified live `302 -> cloudflareaccess.com` for both `GET /` and `GET /api/*`. Not referenced in `src/index.ts` (zero `CF-Access-*` hits).
+- Protects the **whole Worker domain** (`aegisflow.maakebda.workers.dev`, path `/*`) — verified live `302 -> cloudflareaccess.com` for both `GET /` and `GET /api/*`. Not referenced in `src/index.ts` (zero `CF-Access-*` hits).
 - Browser flow: `GET /` → `302` to `cloudflareaccess.com/login` → OTP → sets `CF_Authorization`/`CF_AppSession` (HttpOnly, edge-only) → request reaches Worker.
 - Cron `scheduled()` is **not** affected — it never passes through `fetch()` auth.
 
 **Layer 2 — Worker `ADMIN_API_KEY` (src/index.ts:52-124):**
 - Secret binding `Env.ADMIN_API_KEY`; `ENVIRONMENT=production` triggers `500 ADMIN_API_KEY not configured` if missing — set 2026-08-21 via `wrangler secret put`.
-- Accepted credentials (all compared with **constant-time `safeEqual`**): `Authorization: Bearer <key>`, `Authorization: Basic` (password=`key`, username ignored), `X-API-Key: <key>`, or session cookie `__Host-opran_admin_token` (`HttpOnly; Secure; Path=/; Max-Age=86400; SameSite=Strict`).
-- **Session cookie hardening 2026-08-21:** cookie value is `base64(SHA-256("opran-session-v1|<key>"))` — a **keyed hash, never the raw key** (cookie leak ≠ master-key leak; rotating `ADMIN_API_KEY` revokes all sessions). `?token=<key>` in URL **removed** (query strings leak into logs/referrers — OWASP skill Step 5). Browser login: native `Basic` dialog on `GET /` → on success the HTML response also sets the session cookie so the panel's same-origin `fetch()` is authenticated. `POST /logout` clears the cookie.
+- Accepted credentials (all compared with **constant-time `safeEqual`**): `Authorization: Bearer <key>`, `Authorization: Basic` (password=`key`, username ignored), `X-API-Key: <key>`, or session cookie `__Host-aegisflow_admin_token` (`HttpOnly; Secure; Path=/; Max-Age=86400; SameSite=Strict`).
+- **Session cookie hardening 2026-08-21:** cookie value is `base64(SHA-256("aegisflow-session-v1|<key>"))` — a **keyed hash, never the raw key** (cookie leak ≠ master-key leak; rotating `ADMIN_API_KEY` revokes all sessions). `?token=<key>` in URL **removed** (query strings leak into logs/referrers — OWASP skill Step 5). Browser login: native `Basic` dialog on `GET /` → on success the HTML response also sets the session cookie so the panel's same-origin `fetch()` is authenticated. `POST /logout` clears the cookie.
 - **No custom rate limiter (ponytail):** Layer 1 Access edge (OTP + its own limits) + 256-bit random key make credential-stuffing infeasible.
 
 **Same-origin panel model (src/index.ts getAdminHTML):**
-- Frontend is **inside the Worker** — no separate SPA build. All `fetch()` calls are **bare same-origin** with **no** `X-API-Key`/`CF-Access-*` headers — they rely on cookies (`CF_Authorization` + `__Host-opran_admin_token`) sent automatically.
+- Frontend is **inside the Worker** — no separate SPA build. All `fetch()` calls are **bare same-origin** with **no** `X-API-Key`/`CF-Access-*` headers — they rely on cookies (`CF_Authorization` + `__Host-aegisflow_admin_token`) sent automatically.
 - `ADMIN_API_KEY` is **never embedded** in HTML/JS literals.
 - HTML responses ship security headers: `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, CSP (`frame-ancestors 'none'`, `base-uri 'none'`, script/style `'unsafe-inline'` for the embedded SPA, Google Fonts allowed); all API responses get `Cache-Control: no-store` (PII).
 
