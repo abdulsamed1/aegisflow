@@ -20,7 +20,7 @@ async function getKey(secret: string): Promise<CryptoKey> {
   const derived = await crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt: enc.encode("opran-booking-salt"),
+      salt: enc.encode("aegisflow-salt"),
       iterations: 100000,
       hash: "SHA-256"
     },
