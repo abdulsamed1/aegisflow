@@ -28,7 +28,7 @@ export interface Env {
   PLAN_TIER?: string;
 }
 
-// ponytail: tier-aware burst clamp — Free tier caps to 2 (<50 subrequests); Workers Paid caps to 12 (D5/FR-4)
+//  tier-aware burst clamp — Free tier caps to 2 (<50 subrequests); Workers Paid caps to 12 (D5/FR-4)
 export function parseScanBursts(v?: string, planTier?: string): number {
   const n = parseInt(v ?? "2", 10);
   const cap = typeof planTier === "string" && /paid/i.test(planTier) ? 12 : 2;
@@ -46,7 +46,7 @@ function secretErrorResponse(): Response {
   });
 }
 
-// ponytail: session cookie holds a keyed hash of ADMIN_API_KEY, never the raw key — cookie leak ≠ key leak
+//  session cookie holds a keyed hash of ADMIN_API_KEY, never the raw key — cookie leak ≠ key leak
 async function sessionToken(adminKey: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -56,7 +56,7 @@ async function sessionToken(adminKey: string): Promise<string> {
 }
 
 // constant-time comparison — kills timing side-channel on secret compare
-// ponytail: manual XOR loop — Node lacks crypto.subtle.timingSafeEqual, one portable impl
+//  manual XOR loop — Node lacks crypto.subtle.timingSafeEqual, one portable impl
 function safeEqual(a: string, b: string): boolean {
   const enc = new TextEncoder();
   const ba = enc.encode(a);
@@ -93,7 +93,7 @@ export default {
         });
       }
 
-      // ponytail: no custom rate limiter — Access edge (layer 1) + 256-bit key entropy cover brute force
+      //  no custom rate limiter — Access edge (layer 1) + 256-bit key entropy cover brute force
       let cookieToSet: string | null = null;
 
       if (env.ADMIN_API_KEY) {
@@ -144,7 +144,7 @@ export default {
           });
         }
 
-        // ponytail: browser logged in via header → upgrade to session cookie so the panel's fetch() is authenticated
+        //  browser logged in via header → upgrade to session cookie so the panel's fetch() is authenticated
         if (viaHeader) {
           cookieToSet = `__Host-aegisflow_admin_token=${expectedSession}; HttpOnly; Secure; Path=/; Max-Age=86400; SameSite=Strict`;
         }
@@ -164,7 +164,7 @@ export default {
 
         const isTripped = isCircuitBreakerTripped(metricsToday.total_browser_seconds || 0.0);
 
-        // ponytail: last-5 booking failures for the health tile — one bounded
+        //  last-5 booking failures for the health tile — one bounded
         // query, no aggregation, no per-row Intl (client formats the clock).
         const { results: failureResults } = await env.DB.prepare(
           "SELECT job_id, client_id, event_type, details, created_at FROM audit_logs WHERE event_type IN ('BOOKING_FAILED','SLOT_GONE_PRE_LAUNCH','PRE_SUBMIT_BLOCKED','BOOKING_RETRY') ORDER BY created_at DESC LIMIT 5"
@@ -235,7 +235,7 @@ export default {
                 decryptError: false
               };
             } catch {
-              // ponytail: one row encrypted under a non-matching key must not 500
+              //  one row encrypted under a non-matching key must not 500
               // the whole ledger — flag it so the operator can repair (re-enter key
               // or delete + re-add the client) instead of staring at skeletons.
               return {
@@ -350,7 +350,7 @@ export default {
           .run();
 
         // Auto-create matching Job record
-        // ponytail: legacy per-client columns written once with global constants — never read by the scheduler
+        //  legacy per-client columns written once with global constants — never read by the scheduler
         const jobId = `job_${Date.now()}`;
         const allDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
         await env.DB.prepare(
@@ -417,7 +417,7 @@ export default {
           });
         }
 
-        // ponytail: empty passport = keep existing ciphertext; plaintext passport never re-sent to the browser
+        //  empty passport = keep existing ciphertext; plaintext passport never re-sent to the browser
         let passportEnc: string;
         if (body.passportNumber.trim() === "") {
           const row = await env.DB.prepare("SELECT passport_number_enc FROM clients WHERE id = ?")
@@ -490,7 +490,7 @@ export default {
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         }
-        // ponytail: guard mid-flight booking — if DO lock is held/sealed, reject 423
+        //  guard mid-flight booking — if DO lock is held/sealed, reject 423
         if (job) {
           try {
             const stRes = await env.JOB_LOCK.get(env.JOB_LOCK.idFromName(job.id)).fetch("https://lock/status");
@@ -504,11 +504,11 @@ export default {
           } catch { }
         }
 
-        // ponytail: detach scheduler audit rows first — they FK-reference the client and would block the delete
+        //  detach scheduler audit rows first — they FK-reference the client and would block the delete
         await env.DB.prepare("UPDATE audit_logs SET client_id = NULL, job_id = NULL WHERE client_id = ?")
           .bind(clientId).run();
 
-        // ponytail: audit via details, not client_id FK — the client row is deleted next and would violate the FK
+        //  audit via details, not client_id FK — the client row is deleted next and would violate the FK
         await env.DB.prepare("INSERT INTO audit_logs (event_type, details) VALUES ('CLIENT_DELETED', ?)")
           .bind(clientId).run();
         await env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(clientId).run();
@@ -538,7 +538,7 @@ export default {
         });
       }
 
-      // API: Daily report — ponytail: Cairo-bucketed dedup + timeline + multi-day history
+      // API: Daily report —  Cairo-bucketed dedup + timeline + multi-day history
       if (path === "/api/daily-report" && request.method === "GET") {
         const dateParam = url.searchParams.get("date");
         let cairoDay = getCairoDateString(new Date());
@@ -546,7 +546,7 @@ export default {
           const d = new Date(dateParam + "T12:00:00Z");
           if (!Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === dateParam) cairoDay = dateParam;
         }
-        // ponytail: bulk scan-noise types (NO_APPOINTMENT, UNKNOWN_RESPONSE ≈100% of rows)
+        //  bulk scan-noise types (NO_APPOINTMENT, UNKNOWN_RESPONSE ≈100% of rows)
         // carry zero opportunity signal — summaries/history never read them. Selecting 8 days
         // of them cost ~2.6s CPU on 10k rows (per-row Intl + JSON.parse) and the platform
         // kills the isolate (HTTP 503 on the 10ms Free budget). Two bounded queries instead:
@@ -560,7 +560,7 @@ export default {
         ).bind(cairoDay, cairoDay).all<any>();
         const signalRows = signalResults || [];
         const unknownRows = unknownResults || [];
-        // ponytail: both inputs arrive sorted — merge (not concat) keeps allRows chronological in O(n).
+        //  both inputs arrive sorted — merge (not concat) keeps allRows chronological in O(n).
         const allRows: any[] = [];
         let i = 0, j = 0;
         while (i < signalRows.length || j < unknownRows.length) {
@@ -665,7 +665,7 @@ export default {
         return;
       }
 
-      // ponytail: 2×/min = every 30s coverage; 2*8*660*3 jobs ≈31k/day <200k free (Free cap 50 subrequests/invocation — 6× would exceed)
+      //  2×/min = every 30s coverage; 2*8*660*3 jobs ≈31k/day <200k free (Free cap 50 subrequests/invocation — 6× would exceed)
       const bursts = parseScanBursts(env.SCAN_BURSTS, env.PLAN_TIER);
       let slotResult: Awaited<ReturnType<typeof scanAvailability>> | undefined;
       let unknownResult: Awaited<ReturnType<typeof scanAvailability>> | undefined;
@@ -761,7 +761,7 @@ export default {
         calendarId: job.calendar_id
       };
 
-      // ponytail: re-verify slot before burning browser budget (step 4 latency gap)
+      //  re-verify slot before burning browser budget (step 4 latency gap)
       const reverify = await scanAvailability(job.calendar_id, slotMonday, sessionCookie);
       const reverifyAction = decideReverifyAction(reverify);
       if (reverifyAction !== "PROCEED") {
@@ -999,7 +999,7 @@ function getAdminHTML(): string {
        v6: light editorial embassy case-file — parchment canvas, ink text, one
        burnt-red accent, ledger rules, zero shadows. Operator-directed per
        docs/ux-spec.md v6 (supersedes ClickHouse v5 near-black).
-       ponytail: JetBrains Mono dropped — system mono stack + tabular-nums
+        JetBrains Mono dropped — system mono stack + tabular-nums
        (one fewer font request); textile weave is two static CSS gradients. */
     :root {
       --bg-surface: #f4efe6;        /* canvas: parchment */
@@ -1674,7 +1674,7 @@ function getAdminHTML(): string {
     function toast(msg, kind, dedupeKey) {
       var box = document.getElementById("toasts");
       if (!box) return;
-      // ponytail: 10s polling must not stack identical failure slips — one visible slip per cause.
+      //  10s polling must not stack identical failure slips — one visible slip per cause.
       if (dedupeKey && dedupeKey === lastToastKey && lastToastEl && lastToastEl.isConnected) return;
       var el = document.createElement("div");
       el.className = "toast" + (kind === "success" ? " toast-success" : kind === "error" ? " toast-error" : "");
@@ -1686,14 +1686,14 @@ function getAdminHTML(): string {
       x.onclick = function() { el.remove(); };
       el.appendChild(span);
       el.appendChild(x);
-      // ponytail: single visible slip — a new toast replaces the old one (ux-feedback).
+      //  single visible slip — a new toast replaces the old one (ux-feedback).
       while (box.firstChild) box.firstChild.remove();
       box.appendChild(el);
       if (dedupeKey) { lastToastKey = dedupeKey; lastToastEl = el; }
       setTimeout(function() { el.remove(); }, 3000);
     }
 
-    // ponytail: surface the server's own error message (500 bodies name the cause —
+    //  surface the server's own error message (500 bodies name the cause —
     // without this the UI can only report the downstream TypeError, hiding the culprit).
     async function fetchJSON(url) {
       var res = await fetch(url);
@@ -1883,7 +1883,7 @@ function getAdminHTML(): string {
 
     async function loadDailyReport(dateOverride) {
       const input = document.getElementById('report-date');
-      // ponytail: default to Cairo today via Intl en-CA, no dep
+      //  default to Cairo today via Intl en-CA, no dep
       const cairoToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Cairo' });
       const date = dateOverride || (input && input.value) || cairoToday;
       if (input) input.value = date;

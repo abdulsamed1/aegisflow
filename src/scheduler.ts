@@ -36,7 +36,7 @@ export function getCairoTimeInfo(date: Date = new Date()): CairoTimeInfo {
 
   // Operating Window (D5 amended 2026-08-20): global Cairo window 07:00-18:00,
   // every day including Friday. No per-day list.
-  // ponytail: hour granularity only — minute precision adds nothing here
+  //  hour granularity only — minute precision adds nothing here
   const isWithinWindow = hour >= 7 && hour < 18;
 
   return {
@@ -79,13 +79,13 @@ export const SCHEDULER_PICK_QUERY = `
   ORDER BY jobs.last_check ASC
   LIMIT 3`;
 
-// ponytail: minimal Cairo-day helper for reporting — uses stdlib Intl, no deps
+//  minimal Cairo-day helper for reporting — uses stdlib Intl, no deps
 const cairoDateFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" });
 export function getCairoDateString(date: Date = new Date()): string {
   return cairoDateFmt.format(date);
 }
 
-// ponytail: global rule — the horizon is a constant, not a parameter
+//  global rule — the horizon is a constant, not a parameter
 export const HORIZON_WEEKS = 8;
 
 export function rollingMondays(now: Date = new Date()): string[] {
