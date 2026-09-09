@@ -375,7 +375,7 @@ test("Dashboard: inline <script> parses without SyntaxError", async () => {
   const close = html.indexOf("</script>");
   assert.ok(open >= 0 && close > open, "Dashboard must ship its inline script");
   const js = html.slice(open + "<script>".length, close);
-  // ponytail: node:vm parses without executing — catches browser-killing SyntaxErrors
+  //  node:vm parses without executing — catches browser-killing SyntaxErrors
   // that tsc and DOM-string assertions cannot see.
   assert.doesNotThrow(() => new vm.Script(js), "Inline dashboard JS must parse in the browser");
 });

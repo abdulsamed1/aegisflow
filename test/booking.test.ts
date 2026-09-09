@@ -31,7 +31,7 @@ test("Booking Engine: Payload contains only G0-verified discovery fields", () =>
 
 test("Booking Engine: Batch parallel dispatch live", async () => {
   const origFetch = globalThis.fetch;
-  // ponytail: mock BMEIA portal to avoid real network in unit test
+  //  mock BMEIA portal to avoid real network in unit test
   (globalThis as any).fetch = async () => new Response("<html>no reference</html>", { status: 200 });
   try {
     const clients: DecryptedClientData[] = Array.from({ length: 10 }, (_, i) => ({

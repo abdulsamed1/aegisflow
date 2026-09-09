@@ -14,7 +14,7 @@ export function isCaptchaError(html: string): boolean {
   return /captcha/i.test(html) && /incorrect|invalid|error|wrong|does not match|mismatch/i.test(html);
 }
 
-const VISION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct"; // ponytail: 90b not available on Free; verified via /ai/models/search — only 11b + llava exist
+const VISION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct"; //  90b not available on Free; verified via /ai/models/search — only 11b + llava exist
 
 /**
  * Clean model output to extract the 4-char code
@@ -104,7 +104,7 @@ async function getWorker(): Promise<any> {
     const { createWorker } = await import("tesseract.js");
     const worker: any = await createWorker("eng", 1, {
       langPath: "https://tessdata.projectnaptha.com/4.0.0",
-      logger: () => {},
+      logger: () => { },
     });
     await worker.setParameters({
       tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
@@ -180,7 +180,7 @@ export async function solveCaptchaAudio(
     return code;
   }
 
-  // ponytail: parallel whisper execution when ai binding present — eliminates sequential fallback latency gap
+  //  parallel whisper execution when ai binding present — eliminates sequential fallback latency gap
   const t0 = Date.now();
   try {
     if (ai) {
@@ -272,7 +272,7 @@ export async function solveCaptcha(
 // For tests: allow terminate
 export async function terminateCaptchaWorker(): Promise<void> {
   if (cachedWorker) {
-    try { await cachedWorker.terminate(); } catch {}
+    try { await cachedWorker.terminate(); } catch { }
     cachedWorker = null;
     workerInit = null;
   }
