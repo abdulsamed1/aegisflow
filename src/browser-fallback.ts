@@ -24,7 +24,7 @@ export interface BrowserFallbackResult {
   submitted?: boolean;
 }
 
-// ponytail: 20s sequential FIFO queue between browser launches (NFR-2) — module-level gate
+//  20s sequential FIFO queue between browser launches (NFR-2) — module-level gate
 let lastLaunchAt = 0;
 let launchGate: Promise<void> = Promise.resolve();
 
@@ -266,7 +266,7 @@ export async function executePlaywrightFallback(
     stageReached = "FORM_FILL";
 
     // Step 6: Personal data — fill using REAL portal names (London evidence, 31 fields)
-    // ponytail: helper to fill if element exists, ignore if not
+    //  helper to fill if element exists, ignore if not
     const fill = async (sel: string, val: string) => {
       const el = await page.$(sel);
       if (el && val) await page.fill(sel, val).catch(() => null);
@@ -301,7 +301,7 @@ export async function executePlaywrightFallback(
     if (consent) await consent.check().catch(() => null);
 
     // CAPTCHA: Captcha_CaptchaImage + CaptchaText (BDC_* hidden fields are auto-submitted)
-    // ponytail: open-source local OCR (tesseract.js) — no API key, no polling, free per D3
+    //  open-source local OCR (tesseract.js) — no API key, no polling, free per D3
     const captchaImg = await page.$('#Captcha_CaptchaImage, img[id*="Captcha"]');
     if (captchaImg) {
       // @ts-ignore — runs in browser context, document available there
@@ -314,7 +314,7 @@ export async function executePlaywrightFallback(
       let code: string | null = null;
 
       // Primary: SOUND channel — clean isolated speech beats distorted-image OCR on first attempts.
-      // ponytail: BotDetect exposes get=sound on the same handler URL; fetch in page context keeps session cookies
+      //  BotDetect exposes get=sound on the same handler URL; fetch in page context keeps session cookies
       try {
         const imgSrc = await captchaImg.evaluate((el: any) => (el as any).src);
         if (imgSrc && /BotDetect/i.test(imgSrc)) {
@@ -335,7 +335,7 @@ export async function executePlaywrightFallback(
             code = await solveCaptchaAudio(bytes, opts?.ai).catch(() => null);
           }
         }
-      } catch {}
+      } catch { }
 
       // Fallback: image screenshot -> vision model -> tesseract
       if (!code) {
@@ -343,7 +343,7 @@ export async function executePlaywrightFallback(
         try {
           const buf = await captchaImg.screenshot({ type: "png" }).catch(() => null);
           if (buf) imgBase64 = buf.toString("base64");
-        } catch {}
+        } catch { }
         if (!imgBase64) {
           const full = await page.screenshot({ type: "jpeg", quality: 60 }).catch(() => null);
           if (full) imgBase64 = full.toString("base64");

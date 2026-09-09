@@ -18,7 +18,7 @@ test("parseScanBursts: clamps to 1..2 (Free tier safety)", () => {
 });
 
 test("parseScanBursts: early-exit bookkeeping preserved", () => {
-  // ponytail: verifies P3 — unknown not overwritten when SLOTS found
+  //  verifies P3 — unknown not overwritten when SLOTS found
   assert.strictEqual(parseScanBursts("2"), 2);
 });
 

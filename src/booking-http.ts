@@ -2,7 +2,7 @@
  * Booking Engine — live booking only (DRY_RUN removed per operator request).
  * NOTE: executeDirectHttpBooking/executeBatchFastPathBookings are DEAD for live booking;
  * scheduled() uses Playwright wizard only (FR-7). Retained for payload helper tests.
- * ponytail: keep helpers (formatDateForPortal, buildStep3DetailsPayload, parseBookingConfirmationReference) — scanner/wizard need them.
+ *  keep helpers (formatDateForPortal, buildStep3DetailsPayload, parseBookingConfirmationReference) — scanner/wizard need them.
  */
 
 export interface DecryptedClientData {
@@ -147,7 +147,7 @@ export async function executeBatchFastPathBookings(
 export function formatDateForPortal(isoDate: string): string {
   if (!isoDate || typeof isoDate !== "string") return "";
   const trimmed = isoDate.trim();
-  
+
   // Already in MM/DD/YYYY format
   if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
     return trimmed;
@@ -168,7 +168,7 @@ export function formatDateForPortal(isoDate: string): string {
 /**
  * Pre-serialize Step 3 personal details & CAPTCHA payload matching live portal specification.
  * Field names verified via London E2E (scratchpad_hkcax71f.md): 31 fields incl. BDC_* hidden.
- * ponytail: keep fabricated AppointmentDate/TimeSlot for backward compat but prefer StartTime + hidden Token/BDC
+ *  keep fabricated AppointmentDate/TimeSlot for backward compat but prefer StartTime + hidden Token/BDC
  */
 export function buildStep3DetailsPayload(
   client: DecryptedClientData,

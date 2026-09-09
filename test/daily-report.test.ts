@@ -7,7 +7,7 @@ function row(job_id: string, event_type: string, week: string, created_at: strin
   return { job_id, client_id: `c_${job_id}`, event_type, details: JSON.stringify({ week }), created_at };
 }
 
-// ponytail: minimal fixtures per validation spec
+//  minimal fixtures per validation spec
 test("daily-report: same-slot persisting across ticks must not overcount", () => {
   const day = "2026-08-21";
   const rows = [

@@ -1,7 +1,7 @@
 /**
  * Booking flow orchestrator — pure decision helpers for reverify/retry.
  * Keeps scheduled() thin and testable; no I/O here.
- * ponytail: 10 lines, no deps
+ *  10 lines, no deps
  */
 
 export type ReverifyResult = "PROCEED" | "ABORT_SLOT_GONE" | "ABORT_UNKNOWN";
