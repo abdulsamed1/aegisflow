@@ -13,12 +13,16 @@ export function decideReverifyAction(scan: { status: string }): ReverifyResult {
 }
 
 export function decideRetryAction(
-  first: { success: boolean },
+  first: { success: boolean; classification?: string },
   rescan: { status: string },
   breakerTripped: boolean
 ): "RETRY" | "REQUEUE" {
   if (first.success) return "REQUEUE";
   if (breakerTripped) return "REQUEUE";
+  //  deterministic platform launch failures (prod 2026-09-06/08/10: mkdtemp
+  // crash → blind retry → 429) never recover same-tick: requeue with backoff
+  // so the orphaned remote session expires instead of burning budget.
+  if (first.classification === "LAUNCH_ERROR") return "REQUEUE";
   if (rescan.status === "SLOTS") return "RETRY";
   return "REQUEUE";
 }

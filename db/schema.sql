@@ -72,3 +72,9 @@ CREATE TABLE IF NOT EXISTS daily_metrics (
 
 CREATE INDEX IF NOT EXISTS idx_jobs_scheduler ON jobs(enabled, status, backoff_until, last_check);
 CREATE INDEX IF NOT EXISTS idx_audit_job ON audit_logs(job_id, created_at);
+-- 2026-09-11 quota incident: dashboard polls /api/logs?limit=200 + /api/status
+-- every 10s; without these, both ORDER BY created_at DESC LIMIT queries
+-- full-scan audit_logs (measured 51,640 + 25,826 rows read per 10s tick
+-- against 25,820 rows ≈670M rows/day per tab vs 5M free quota).
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_type_created ON audit_logs(event_type, created_at DESC);

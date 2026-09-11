@@ -1,7 +1,7 @@
 name = "aegisflow"
 main = "src/index.ts"
 account_id = "YOUR_ACCOUNT_ID"
-compatibility_date = "2025-09-15"
+compatibility_date = "2025-09-23"
 compatibility_flags = ["nodejs_compat"]
 
 [placement]
