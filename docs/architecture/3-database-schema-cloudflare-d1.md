@@ -81,6 +81,12 @@ CREATE TABLE IF NOT EXISTS daily_metrics (
 -- Indexes for Scheduler Performance
 CREATE INDEX IF NOT EXISTS idx_jobs_scheduler ON jobs(enabled, status, backoff_until, last_check);
 CREATE INDEX IF NOT EXISTS idx_audit_job ON audit_logs(job_id, created_at);
+-- 2026-09-11 quota incident: the dashboard polls /api/logs?limit=200 + /api/status every 10s,
+-- both ORDER BY created_at DESC LIMIT. Without time-ordered indexes each tick full-scanned
+-- audit_logs (measured 51,640 + 25,826 rows read over ~25,820 rows ≈670M rows/day per tab
+-- vs the 5M free quota). Do not drop these without replacing the polling pattern.
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_type_created ON audit_logs(event_type, created_at DESC);
 ```
 
 > **2026-08-20 (client deletion):** `audit_logs.client_id`/`job_id` have no `ON DELETE` action, and D1 enforces FKs — scheduler scan rows referencing a client would block `DELETE /api/clients/:id`. The DELETE route therefore nulls both columns for the client first (`UPDATE audit_logs SET client_id = NULL, job_id = NULL WHERE client_id = ?`), then writes `CLIENT_DELETED`, then deletes. The optional `ON DELETE SET NULL` migration is recorded in `Todo.md` (deferred-work list).
