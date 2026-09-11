@@ -13,13 +13,15 @@ import {
 // while slots verify. Safety valves stay: single same-tick retry, 20s launch
 // throttle, DO lock, reverify gate, 540s circuit breaker.
 
-test("slot alarm: actionable in seconds — week, job, client, portal URL, parallel hint", () => {
+test("slot alarm: ARABIC and actionable in seconds — week, job, client, Bachelor, portal URL", () => {
   const msg = buildSlotAlarmMessage({ jobId: "job_1", clientName: "Ahmed", week: "9/21/2026 12:00:00 AM" });
   assert.ok(msg.includes("9/21/2026"), "must carry the slot week");
   assert.ok(msg.includes("job_1"), "must carry the job id");
   assert.ok(msg.includes("Ahmed"), "must carry who the slot is for");
+  assert.ok(msg.includes("Bachelor"), "must name the Bachelor category");
   assert.ok(msg.includes("https://appointment.bmeia.gv.at"), "must carry the portal URL to open now");
-  assert.ok(/parallel/i.test(msg), "must tell the operator the bot is launching too");
+  assert.ok(/مواعيد|متاح/i.test(msg), `alarm must read Arabic, got: ${msg}`);
+  assert.ok(/بالتوازي|يدوي/i.test(msg), `must tell the operator to apply manually in parallel, got: ${msg}`);
 });
 
 test("slot alarm: carries no passport/secrets (alarm speed needs no PII)", () => {

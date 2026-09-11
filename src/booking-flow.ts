@@ -10,16 +10,18 @@ export type BookingStep = "STARTED" | "SUBMITTED" | "RETRY" | "FAILED" | "SLOT_G
 
 export const PORTAL_URL = "https://appointment.bmeia.gv.at";
 
-// Instant slot alarm (operator applies manually IN PARALLEL while the bot runs
-// the wizard). Actionable in seconds: who, which week, where to click. No PII
-// beyond the first name — speed needs no passport numbers.
+// Instant slot alarm, in ARABIC (operator-parallel flow): the moment the scanner
+// sees SLOTS the operator opens the portal and applies manually IN PARALLEL
+// while the bot runs the wizard. Actionable in seconds: who, which week, where
+// to click. No PII beyond the first name — speed needs no passport numbers.
 export function buildSlotAlarmMessage(slot: { jobId: string; clientName: string; week: string }): string {
   return (
-    `🚨 *SLOTS AVAILABLE — apply NOW (bot launching in parallel)*\n\n` +
-    `Job: \`${slot.jobId}\` — Client: \`${slot.clientName}\`\n` +
-    `Week: \`${slot.week}\`\n` +
-    `Portal: ${PORTAL_URL} (Office KAIRO)\n\n` +
-    `Open the site and apply manually — the bot wizard is launching too.`
+    `🚨 *مواعيد متاحة — قدّم الآن (البوت يحجز بالتوازي)*\n\n` +
+    `الطلب: \`${slot.jobId}\` — العميل: \`${slot.clientName}\`\n` +
+    `الأسبوع: \`${slot.week}\`\n` +
+    `الفئة: \`Bachelor\`\n` +
+    `البوابة: ${PORTAL_URL} (مكتب KAIRO)\n\n` +
+    `افتح الموقع وقدّم يدويًا — البوت يعمل بالتوازي أيضًا.`
   );
 }
 
