@@ -1319,6 +1319,8 @@ function getAdminHTML(): string {
     .toast-success { border-inline-start-color: var(--success); }
     .toast-error { border-inline-start-color: var(--danger); }
     .toast button { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 14px; line-height: 1; margin-inline-start: auto; }
+    /* ---- end-user simple mode: log/failure tiles hide, hero + ledgers stay ---- */
+    body.simple-mode .operator-only { display: none !important; }
     /* ---- audit ledger controls ---- */
     .audit-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .audit-controls .form-select, .audit-controls .form-control { width: auto; }
@@ -1345,6 +1347,19 @@ function getAdminHTML(): string {
 </head>
 <body>
   <div class="container">
+
+    <!-- End-user hero: plain-Arabic request status first (progressive disclosure) -->
+    <div class="table-card" id="hero-card" style="margin-bottom:22px; border-top:3px solid var(--primary);">
+      <div style="padding:18px 22px; display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
+        <div style="font-size:26px;" id="hero-icon" aria-hidden="true">⏳</div>
+        <div style="flex:1; min-width:220px;">
+          <div class="eyebrow">حالة طلبك</div>
+          <div id="hero-status" style="font-size:17px; font-weight:800;" aria-live="polite">جاري تحميل حالة طلبك…</div>
+          <div id="hero-sub" style="font-size:13px; color:var(--text-muted); margin-top:4px;"></div>
+        </div>
+        <button class="btn btn-outline-light btn-sm" id="view-toggle" type="button" onclick="toggleSimpleView()">وضع مبسط</button>
+      </div>
+    </div>
 
     <div class="grid-metrics">
       <div class="metric-card featured">
@@ -1476,7 +1491,7 @@ function getAdminHTML(): string {
       </div>
     </section>
 
-    <section class="table-card" id="audit-card" aria-labelledby="audit-title">
+    <section class="table-card operator-only" id="audit-card" aria-labelledby="audit-title">
       <div class="table-header" style="flex-wrap:wrap; gap:12px;">
         <div><div class="eyebrow"><span class="folio">٠٣</span>سجل النظام</div><h2 id="audit-title">أحداث التدقيق المباشرة</h2></div>
         <div class="audit-controls">
@@ -1502,7 +1517,7 @@ function getAdminHTML(): string {
     </section>
     </div>
 
-    <section class="table-card" aria-labelledby="health-title">
+    <section class="table-card operator-only" aria-labelledby="health-title">
       <div class="table-header">
         <div><div class="eyebrow"><span class="folio">٠٤</span>صحة الحجز · Africa/Cairo</div><h2 id="health-title">أعطال الحجز الأخيرة</h2></div>
         <span class="livetag" style="margin:0;"><span class="dot"></span>آخر 5 أحداث فاشلة</span>
@@ -1881,6 +1896,8 @@ function getAdminHTML(): string {
         renderClients();
         renderBudget(data.metricsToday, data.circuitBreakerTripped);
         renderHealth(data.recentFailures || []);
+        window.__status = data;
+        renderHero();
       } catch (err) {
         console.error('Failed to load dashboard:', err);
         toast('تعذر تحديث اللوحة: ' + (err && err.message ? err.message : err), 'error', 'dash');
@@ -1954,6 +1971,52 @@ function getAdminHTML(): string {
         \`).join('');
 
     }
+    //  end-user hero: one plain-Arabic answer from live data — booked beats
+    // open beats breaker-paused beats active beats none. Copy has zero codes.
+    function renderHero() {
+      var st = document.getElementById('hero-status');
+      if (!st) return;
+      var sub = document.getElementById('hero-sub');
+      var icon = document.getElementById('hero-icon');
+      var data = window.__status || null;
+      var rep = window.__report || null;
+      var clients = window.__clients || [];
+      var booked = clients.some(function(c) { return c.status === 'BOOKED'; });
+      var ic = '⏳', title = 'جاري تحميل حالة طلبك…', detail = '';
+      if (booked) {
+        ic = '✅'; title = 'تم حجز موعدك بنجاح';
+        detail = 'موعدك مؤكد ومحفوظ في سجل طلبك أدناه.';
+      } else if (rep && rep.was_open) {
+        ic = '⚡'; title = 'وجدنا مواعيد متاحة اليوم — نقدّم طلبك الآن';
+        detail = 'لا حاجة لأي إجراء منك — ستظهر النتيجة هنا فور اكتمالها.';
+      } else if (data && data.circuitBreakerTripped) {
+        ic = '⏸'; title = 'توقف مؤقت اليوم — نعاود الفحص غدًا';
+        detail = 'بلغنا حد التشغيل اليومي المؤقت؛ طلبك محفوظ وسيُستأنف تلقائيًا.';
+      } else if (data && data.activeJobs > 0) {
+        ic = '🔍'; title = 'طلبك نشط ويُفحص يوميًا';
+        detail = 'نفحص البوابة من 07:00 حتى 18:00 بتوقيت القاهرة — ستصلك رسالة فور توفر موعد.';
+      } else if (data) {
+        ic = '📝'; title = 'لا يوجد طلب نشط حاليًا';
+        detail = 'أضف بياناتك من زر إضافة مرشح ليبدأ الفحص.';
+      }
+      st.textContent = title;
+      if (sub) sub.textContent = detail;
+      if (icon) icon.textContent = ic;
+    }
+    //  simplified view for end-users: hides log/failure tiles, persists choice.
+    function isSimpleView() {
+      try { return localStorage.getItem('aegisflow-view') === 'simple'; } catch (e) { return false; }
+    }
+    function applyView() {
+      var simple = isSimpleView();
+      document.body.classList.toggle('simple-mode', simple);
+      var b = document.getElementById('view-toggle');
+      if (b) b.textContent = simple ? 'عرض تفصيلي' : 'وضع مبسط';
+    }
+    function toggleSimpleView() {
+      try { localStorage.setItem('aegisflow-view', isSimpleView() ? 'full' : 'simple'); } catch (e) {}
+      applyView();
+    }
     function renderBudget(metrics, tripped) {
       var secs = Math.round((metrics && metrics.total_browser_seconds) || 0);
       document.getElementById('budget-text').textContent = secs + ' / 600s';
@@ -2008,6 +2071,8 @@ function getAdminHTML(): string {
       if (elHistory) elHistory.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-dim); padding:16px;">جاري تحميل السجل التاريخي...</td></tr>';
       try {
         const d = await fetchJSON('/api/daily-report?date=' + encodeURIComponent(date));
+        window.__report = d;
+        renderHero();
         elWas.innerHTML = d.was_open
           ? '<span class="status-pill status-active">مفتوحة — رُصدت مواعيد ✓</span>'
           : '<span class="status-pill status-paused">مغلقة — لا مواعيد</span>';
@@ -2056,6 +2121,7 @@ function getAdminHTML(): string {
     }
     document.getElementById('report-date')?.addEventListener('change', function(e){ loadDailyReport(e.target.value); });
 
+    applyView();
     loadDashboard();
     loadDailyReport();
     loadAudit();
