@@ -420,6 +420,40 @@ test("API Endpoint: GET /api/daily-report excludes bulk scan-noise types in SQL"
   assert.ok(!(body.timeline as any[]).some((t) => t.event_type === "NO_APPOINTMENT"), "timeline must not contain scan ticks");
 });
 
+test("API Endpoint: GET /api/daily-report history covers the current Cairo month, not 8 days", async () => {
+  // Operator demand 2026-09-11: the history tile must list every slot-day of the
+  // current month. Safe to widen: noise types stay excluded in SQL and signal
+  // rows are ~tens/month, so the lower bound moves from -8 days to month-start
+  // at negligible row cost (the 503-class query was the noise-inclusive one).
+  const seen: { sql: string; args: any[] }[] = [];
+  const signalRows = [
+    { id: 1, job_id: "job_1", client_id: "c1", event_type: "APPOINTMENT_FOUND", duration_ms: 300, details: JSON.stringify({ week: "2026-09-15T00:00:00", responseLength: 9999 }), created_at: "2026-09-02 08:00:00" },
+    { id: 2, job_id: "job_1", client_id: "c1", event_type: "APPOINTMENT_FOUND", duration_ms: 300, details: JSON.stringify({ week: "2026-08-20T00:00:00", responseLength: 9999 }), created_at: "2026-08-25 08:00:00" },
+  ];
+  const mockDB: any = {
+    prepare: (sql: string) => {
+      const entry = { sql, args: [] as any[] };
+      seen.push(entry);
+      const stmt: any = {
+        // Mock enforces the SQL lower bound the way D1 would (lexicographic UTC).
+        bind: (...args: any[]) => { entry.args = args; return stmt; },
+        all: async () => ({ results: sql.includes("= 'UNKNOWN_RESPONSE'") ? [] : signalRows.filter((r) => !entry.args.length || r.created_at >= entry.args[0]) }),
+      };
+      return stmt;
+    },
+  };
+  const env: any = { DB: mockDB, JOB_LOCK: {}, SESSION_KV: {}, MYBROWSER: {}, ENVIRONMENT: "test", ADMIN_API_KEY: "test-admin-key" };
+  const res = await worker.fetch(new Request("https://aegisflow.local/api/daily-report?date=2026-09-11"), env, {} as any);
+  assert.strictEqual(res.status, 200);
+  assert.ok(!seen[0].sql.includes("-8 days"), "signal query must no longer be 8-day bounded");
+  assert.deepStrictEqual(seen[0].args, ["2026-09-01"], "signal lower bound must be the current Cairo month-start");
+  assert.ok(seen[0].sql.includes("NOT IN"), "noise exclusion must stay in SQL");
+  const body = await res.json() as any;
+  const dates = (body.history as any[]).map((h) => h.date);
+  assert.ok(dates.includes("2026-09-02"), "in-month slot-day must appear in history");
+  assert.ok(!dates.includes("2026-08-25"), "prior-month slot-day must be outside the window");
+});
+
 test("Dashboard: premium bento layout without slop effects", async () => {
   const env = createMockEnv();
   const res = await worker.fetch(new Request("https://aegisflow.local/"), env, {} as any);
