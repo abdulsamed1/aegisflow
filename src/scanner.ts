@@ -11,7 +11,20 @@ export interface ScanResult {
   rawResponseLength: number;
   durationMs: number;
   errorMessage?: string;
+  // TRANSPORT = no usable HTTP response (non-OK status, fetch throw: portal
+  // edge down/blocking). PARSE = HTTP 200 with unexpected markup (portal
+  // answered; do NOT treat as outage). Set only on UNKNOWN results.
+  errorKind?: "TRANSPORT" | "PARSE";
   matchedMonday: string;
+}
+
+// Portal-blackout predicate (prod 2026-09 520-storm): true only when EVERY
+// fetch in the burst died at transport — no HTTP response at all. Any SLOTS,
+// NO_SLOTS, or PARSE-level UNKNOWN proves the portal answered, so the caller
+// must keep scanning. Pure helper so the backoff rule is unit-testable.
+export function isTransportOutage(scanResults: ScanResult[]): boolean {
+  if (scanResults.length === 0) return false;
+  return scanResults.every((r) => r.status === "UNKNOWN" && r.errorKind === "TRANSPORT");
 }
 
 const PORTAL_BASE = "https://appointment.bmeia.gv.at";
@@ -76,6 +89,7 @@ export async function scanAvailability(
         rawResponseLength: 0,
         durationMs,
         errorMessage: `HTTP ${response.status}`,
+        errorKind: "TRANSPORT",
         matchedMonday: mondayDateString
       };
     }
@@ -114,6 +128,7 @@ export async function scanAvailability(
       rawResponseLength: html.length,
       durationMs,
       errorMessage: "Unexpected response structure",
+      errorKind: "PARSE",
       matchedMonday: mondayDateString
     };
   } catch (error: any) {
@@ -123,6 +138,7 @@ export async function scanAvailability(
       rawResponseLength: 0,
       durationMs: Date.now() - startTime,
       errorMessage: error.message || "Network request failed",
+      errorKind: "TRANSPORT",
       matchedMonday: mondayDateString
     };
   }
