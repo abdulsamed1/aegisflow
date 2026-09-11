@@ -153,6 +153,13 @@ export async function executePlaywrightFallback(
   opts?: BrowserFallbackOptions
 ): Promise<BrowserFallbackResult> {
   const startTime = Date.now();
+  // Billing clock: durationSeconds must exclude the mandatory 20s launch-
+  // spacing wait inside throttleLaunch() (NFR-2 gate) — only real browser/
+  // portal work counts against the daily budget (prod 2026-09-06/08/10: crashed
+  // pairs billed ~20s doing zero browser work). workStartTime stays equal to
+  // startTime until the throttle releases, so the pre-throttle "not configured"
+  // throw below keeps its accurate near-zero measurement via the same variable.
+  let workStartTime = startTime;
   let browser: any = null;
   let formSubmitted = false;
   let selectedSlot: string | undefined;
@@ -175,6 +182,7 @@ export async function executePlaywrightFallback(
     }
 
     await throttleLaunch();
+    workStartTime = Date.now();
 
     browser = await launchBrowser(browserBinding, opts?.launcher);
     const page = await browser.newPage();
@@ -294,7 +302,7 @@ export async function executePlaywrightFallback(
 
     // Critical invariant: If a target week was requested but cannot be proven, NEVER select an arbitrary slot!
     if (opts?.startTime && !targetRadio) {
-      const dur = (Date.now() - startTime) / 1000.0;
+      const dur = (Date.now() - workStartTime) / 1000.0;
       const shot = await page.screenshot({ type: "jpeg", quality: 60 }).catch(() => null);
       return {
         success: false,
@@ -321,7 +329,7 @@ export async function executePlaywrightFallback(
     const lastNameInput = await page.waitForSelector('input#Lastname, input[name="Lastname"]', { timeout: 15000 }).catch(() => null);
     if (!lastNameInput) {
       const htmlBeforeForm = await page.content().catch(() => "");
-      const dur = (Date.now() - startTime) / 1000.0;
+      const dur = (Date.now() - workStartTime) / 1000.0;
       const shot = await page.screenshot({ type: "jpeg", quality: 60 }).catch(() => null);
       if (htmlBeforeForm.includes("no appointments available")) {
         return {
@@ -449,7 +457,7 @@ export async function executePlaywrightFallback(
           try {
             code = await solveCaptcha(imgBase64, opts?.ai);
           } catch (e: any) {
-            const dur = (Date.now() - startTime) / 1000.0;
+            const dur = (Date.now() - workStartTime) / 1000.0;
             const shot = await page.screenshot({ type: "jpeg", quality: 60 }).catch(() => null);
             return {
               success: false,
@@ -491,7 +499,7 @@ export async function executePlaywrightFallback(
       ]);
     }
 
-    const durationSec = (Date.now() - startTime) / 1000.0;
+    const durationSec = (Date.now() - workStartTime) / 1000.0;
     const content = await page.content().catch(() => "");
     const screenshotBuffer = await page.screenshot({ type: "jpeg", quality: 60 }).catch(() => null);
     const screenshotBase64 = screenshotBuffer ? screenshotBuffer.toString("base64") : undefined;
@@ -566,7 +574,7 @@ export async function executePlaywrightFallback(
     const msg = error?.message || "Playwright browser session failed";
     return {
       success: false,
-      durationSeconds: (Date.now() - startTime) / 1000.0,
+      durationSeconds: (Date.now() - workStartTime) / 1000.0,
       errorMessage: msg,
       classification: classifyLaunchError(msg),
       stageReached,
