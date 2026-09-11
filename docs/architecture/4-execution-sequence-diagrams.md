@@ -35,29 +35,41 @@ sequenceDiagram
     autonumber
     participant Sched as Scheduler Engine
     participant DO as JobLockDO (Durable Object)
+    participant TG as Telegram Bot API
     participant BMEIA as BMEIA Portal
-    participant PW as Playwright Browser Engine
+    participant BW as Puppeteer Browser (acquire→connect, fs-free)
 
     Sched->>DO: AcquireLock(job_id)
     alt Lock Denied / Already Booked
         DO-->>Sched: Lock Rejected
-    else Lock Acquired
+    else Lock Granted
         DO-->>Sched: Lock Granted
-        alt Direct HTTP POST Path
-            Sched->>BMEIA: POST /HomeWeb/Scheduler (Step 3 Payload)
+        Sched->>TG: 🚨 Arabic slot alarm (KV-deduped per job+week)
+        Sched->>BMEIA: Reverify POST (slot still SLOTS?)
+        alt Slot gone / UNKNOWN
+            Sched->>TG: ⚠️ SLOT_GONE stand-down
+            Sched->>DO: ReleaseLock(job_id)
+        else Slot verified
+            Sched->>TG: 🤖 Wizard launching (attempt N)
+            Sched->>BW: launchBrowser() after 20s throttle gate
+            BW->>BMEIA: Wizard: Office→Calendar→Person→Info→Grid→Form→Captcha→Submit
             alt Reference GESX-... Received
                 BMEIA-->>Sched: 200 OK + Confirmation HTML
+                Sched->>TG: 🎉 BOOKED + reference
                 Sched->>DO: SealLock(job_id) [BOOKED]
-            else Unconfirmed / Captcha Failure
-                Sched->>PW: Launch Fallback Browser Session
-                PW->>BMEIA: Fill PII DOM & Submit
-                PW-->>Sched: Submission Result
-                Sched->>DO: ReleaseLock(job_id)
+            else Attempt failed, slot still SLOTS, breaker clear
+                Sched->>TG: 🔁 RETRY notice (attempt 1 only)
+                Sched->>BW: Second launch (bounded: one same-tick retry)
             end
+        end
+        alt Both attempts failed (or no retry)
+            Sched->>TG: ❌ FAILED + never-parked notice
+            Sched->>DO: ReleaseLock(job_id)
+            Note over Sched,DO: Requeue ACTIVE with backoff_until = NULL (never-park 2026-09-11) — retries next tick
         end
     end
 ```
 
-> The dual-engine architecture prioritizes ultra-low latency direct HTTP POST execution (~200ms), falling back automatically to Cloudflare Playwright browser automation if HTTP direct submission requires browser interaction.
+> Single-engine architecture since 2026-09-11: direct HTTP submission is retired (FR-7) and the wizard launches exclusively via `@cloudflare/puppeteer` (`launchBrowser`), after Playwright's `fs.mkdtemp` crash made every launch fail. Billed browser seconds exclude the 20s throttle-gate wait (`workStartTime`). Operator applies manually in parallel off the Arabic slot alarm.
 
 ---
