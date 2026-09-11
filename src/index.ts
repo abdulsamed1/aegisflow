@@ -1,4 +1,4 @@
-import { scanAvailability, getSessionCookie } from "./scanner";
+import { scanAvailability, getSessionCookie, isTransportOutage } from "./scanner";
 import { getCairoTimeInfo, getCairoDateString, rollingMondays, SCHEDULER_PICK_QUERY } from "./scheduler";
 import { aggregateDailyReport, filterRowsByCairoDay, summarizePriorCairoDays, formatBadgeAndMessage } from "./daily-report";
 import { sendTelegramNotification } from "./telegram";
@@ -683,6 +683,15 @@ export default {
         const unk = scanResults.find(r => r.status === "UNKNOWN");
         if (found) { slotResult = found; if (unk && !unknownResult) unknownResult = unk; break; }
         if (unk && !unknownResult) unknownResult = unk;
+        // Portal-blackout backoff (prod 2026-09 520-storm): every fetch in this
+        // burst died at transport, so remaining bursts cannot succeed. Skip them
+        // (and the 30s inter-burst sleep): one aggregated row preserves the
+        // signal instead of up to 8 rows per skipped burst. unknownResult above
+        // still feeds jobs.last_error_code, so operator visibility is unchanged.
+        if (!found && isTransportOutage(scanResults)) {
+          bgTasks.push(env.DB.prepare(`INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details) VALUES (?, ?, 'UNKNOWN_RESPONSE', ?, ?)`).bind(job.id, job.client_id, unk?.durationMs || 0, JSON.stringify({ aggregatedTransportFailures: scanResults.length, weeks: mondays.length, burstsSkipped: bursts - b - 1, error: unk?.errorMessage })).run());
+          break;
+        }
         if (b < bursts - 1) await new Promise(r => setTimeout(r, 30000));
       }
       if (noSlotAggregated) bgTasks.push(env.DB.prepare(`INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details) VALUES (?, ?, 'NO_APPOINTMENT', 0, ?)`).bind(job.id, job.client_id, JSON.stringify({ aggregated: noSlotAggregated, bursts, weeks: mondays.length })).run());
