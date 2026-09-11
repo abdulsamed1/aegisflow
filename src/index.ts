@@ -1812,6 +1812,27 @@ function getAdminHTML(): string {
     }
     var SIGNAL_DEFAULT = "signal";
     var NOISE_TYPES = { NO_APPOINTMENT: true, UNKNOWN_RESPONSE: true };
+    //  operator reads Arabic — event codes render as Arabic labels everywhere
+    // (filter dropdown, audit pills, health pills); unknown codes fall back raw.
+    var EVENT_AR = {
+      NO_APPOINTMENT: "لا مواعيد",
+      APPOINTMENT_FOUND: "رُصدت مواعيد",
+      RULE_MISMATCH: "عدم مطابقة القواعد",
+      UNKNOWN_RESPONSE: "استجابة غير متوقعة",
+      BOOKING_STARTED: "بدء الحجز",
+      BOOKING_RETRY: "إعادة محاولة الحجز",
+      SUBMITTED: "أُرسل النموذج",
+      BOOKED: "تم الحجز",
+      BOOKING_FAILED: "فشل الحجز",
+      SLOT_GONE_PRE_LAUNCH: "اختفاء الموعد قبل الإطلاق",
+      PRE_SUBMIT_BLOCKED: "حظر ما قبل الإرسال",
+      TEMPORARY_ERROR: "خطأ مؤقت",
+      PORTAL_ERROR: "خطأ البوابة",
+      BUDGET_WARNING: "تحذير الميزانية",
+      NOTIFY_SENT: "أُرسل إشعار",
+      CLIENT_DELETED: "حُذف مرشح"
+    };
+    function eventLabel(t) { return EVENT_AR[t] || t; }
     function renderAudit() {
       var sel = document.getElementById("audit-type");
       var q = (document.getElementById("audit-search").value || "").trim();
@@ -1820,7 +1841,7 @@ function getAdminHTML(): string {
       rows.forEach(function(r) { known[r.event_type] = true; });
       var cur = sel.value || SIGNAL_DEFAULT;
       sel.innerHTML = '<option value="signal">الأحداث المهمة فقط</option><option value="">كل الأحداث</option>' + Object.keys(known).sort().map(function(t) {
-        return '<option value="' + t + '"' + (t === cur ? " selected" : "") + ">" + t + "</option>";
+        return '<option value="' + t + '"' + (t === cur ? " selected" : "") + ">" + escapeHtml(eventLabel(t)) + "</option>";
       }).join("");
       var out = rows.filter(function(r) {
         if (cur === SIGNAL_DEFAULT && NOISE_TYPES[r.event_type]) return false;
@@ -1834,7 +1855,7 @@ function getAdminHTML(): string {
         return;
       }
       tb.innerHTML = out.map(function(r) {
-        return '<tr><td class="mono-time">' + auditTime(r.created_at) + '</td><td><span class="status-pill status-paused">' + escapeHtml(r.event_type) + '</span></td><td style="font-size:12.5px;">' + escapeHtml(auditMessage(r)) + "</td></tr>";
+        return '<tr><td class="mono-time">' + auditTime(r.created_at) + '</td><td><span class="status-pill status-paused">' + escapeHtml(eventLabel(r.event_type)) + '</span></td><td style="font-size:12.5px;">' + escapeHtml(auditMessage(r)) + "</td></tr>";
       }).join("");
     }
     async function loadAudit() {
@@ -1950,7 +1971,7 @@ function getAdminHTML(): string {
         return;
       }
       tb.innerHTML = list.map(function(f) {
-        return '<tr><td class="mono-time">' + auditTime(f.created_at) + '</td><td><span class="status-pill status-paused">' + escapeHtml(f.event_type) + '</span></td><td style="font-size:12.5px;">' + escapeHtml(f.message) + '</td><td class="mono" style="font-size:11px; direction:ltr;">' + escapeHtml((f.job_id || '?').slice(0, 12)) + '</td></tr>';
+        return '<tr><td class="mono-time">' + auditTime(f.created_at) + '</td><td><span class="status-pill status-paused">' + escapeHtml(eventLabel(f.event_type)) + '</span></td><td style="font-size:12.5px;">' + escapeHtml(f.message) + '</td><td class="mono" style="font-size:11px; direction:ltr;">' + escapeHtml((f.job_id || '?').slice(0, 12)) + '</td></tr>';
       }).join('');
     }
     document.getElementById('client-search').addEventListener('input', function(e) {

@@ -5,11 +5,11 @@ Generated and executed automated API & E2E tests for candidate CRUD endpoints, s
 
 ## Test Suite Execution Results
 
-- **Total Test Cases**: 125
-- **Passing**: 125
+- **Total Test Cases**: 180
+- **Passing**: 180
 - **Failing**: 0
-- **Duration**: ~18 seconds
-- **Last verified**: 2026-08-22 (performance audit fixes: FIFO throttle queue + parallel whisper audio captcha + tier-aware burst scanning)
+- **Duration**: ~41 seconds
+- **Last verified**: 2026-09-11 (puppeteer launch migration + throttle-billing fix + 520 transport blackout backoff + parallel-apply Telegram alerts + Arabic slot alarm)
 
 ---
 
@@ -30,6 +30,10 @@ Generated and executed automated API & E2E tests for candidate CRUD endpoints, s
 - [x] Browser Launch Throttling: Sequential FIFO launch queue verification (`test/throttle.test.ts`).
 - [x] CAPTCHA Audio Solving: Parallel Whisper selection, fallback to turbo, and timing (`test/captcha.test.ts`).
 - [x] Burst Scanning: Tier-aware clamping (Free 1..2, Paid 1..12) (`test/parse-bursts.test.ts`).
+- [x] Puppeteer launch path + `LAUNCH_ERROR` no-blind-retry rule (`test/puppeteer-launch.test.ts`, `test/booking-retry.test.ts`).
+- [x] Throttle-wait billing exclusion from `durationSeconds` (`test/throttle-billing.test.ts`).
+- [x] Scan `TRANSPORT` vs `PARSE` errors + transport-blackout burst backoff (`test/scanner-transport.test.ts`).
+- [x] Arabic slot alarm, per-step booking alerts, never-park requeue policy (`test/booking-alerts.test.ts`).
 
 ### 3. Miniflare Integration & Security Tests (`test/integration.miniflare.test.ts`)
 - [x] AES-256-GCM PII encryption at rest in Cloudflare D1.
