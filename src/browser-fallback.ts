@@ -10,6 +10,7 @@ export type FailureClassification =
   | "TRANSIENT_ERROR"
   | "SUBMISSION_ERROR"
   | "CAPTCHA_ERROR"
+  | "LAUNCH_ERROR"
   | "UNKNOWN";
 
 export interface BrowserFallbackResult {
@@ -48,6 +49,20 @@ export async function throttleLaunch(): Promise<void> {
 export function resetThrottleLaunchForTests(timestamp = 0): void {
   lastLaunchAt = timestamp;
   launchGate = Promise.resolve();
+}
+
+//  LAUNCH_ERROR = Cloudflare-platform/dependency-level launch failure that a
+// same-tick retry cannot plausibly recover from (prod 2026-09-06/08/10:
+// every mkdtemp crash retried into a deterministic 429, burning ~20s of
+// daily budget per pair). Pure helper so the rule is unit-testable.
+export function classifyLaunchError(msg: string): FailureClassification {
+  if (/fs\.mkdtemp|not implemented yet|Unable to create new browser|Rate limit exceeded|browserType\.|connectOverCDP|MYBROWSER binding not configured|Neither @cloudflare\/playwright/i.test(msg)) {
+    return "LAUNCH_ERROR";
+  }
+  if (/timeout|network|ECONNRESET|ECONNREFUSED|socket|Navigation failed/i.test(msg)) {
+    return "TRANSIENT_ERROR";
+  }
+  return "UNKNOWN";
 }
 
 export async function executePlaywrightFallback(
@@ -467,17 +482,29 @@ export async function executePlaywrightFallback(
     };
   } catch (error: any) {
     const msg = error?.message || "Playwright browser session failed";
-    const isTransient = /timeout|network|ECONNRESET|ECONNREFUSED|socket|Navigation failed/i.test(msg);
     return {
       success: false,
       durationSeconds: (Date.now() - startTime) / 1000.0,
       errorMessage: msg,
-      classification: isTransient ? "TRANSIENT_ERROR" : "UNKNOWN",
+      classification: classifyLaunchError(msg),
       stageReached,
       selectedSlot,
       submitted: formSubmitted
     };
   } finally {
+    //  launch-crash cleanup limit (prod 2026-09-10): `browser` is only
+    // assigned AFTER playwright.launch() resolves, so an exception thrown
+    // before that (e.g. fs.mkdtemp inside connectOverCDP) leaves `browser`
+    // null here — yet the remote side may ALREADY have allocated a session,
+    // because launch() calls acquire() (HTTP /v1/acquire) BEFORE the local
+    // crash site. There is no sessionId/handle to close without `browser`,
+    // and blindly closing all sessions could kill other jobs' browsers, so
+    // explicit release is structurally impossible from this path. Compensating
+    // protection instead: such failures classify as LAUNCH_ERROR, which
+    // decideRetryAction() never same-tick retries — the orphaned session
+    // expires via Cloudflare's idle timeout and no second acquire lands
+    // inside the 20s new-instance window. throttleLaunch()'s slot is
+    // intentionally still consumed: the remote acquire likely happened.
     if (browser) {
       try { await browser.close(); } catch (closeErr) { console.warn("Failed to close browser session cleanly:", closeErr); }
     }
