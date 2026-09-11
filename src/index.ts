@@ -6,8 +6,8 @@ import { JobLockDO } from "./lock";
 import { encryptPII, decryptPII, maskPassport } from "./crypto";
 import { DecryptedClientData } from "./booking-http";
 import { executePlaywrightFallback } from "./browser-fallback";
-import { isCircuitBreakerTripped, getBackoffUntilISO } from "./backoff";
-import { decideReverifyAction, decideRetryAction } from "./booking-flow";
+import { isCircuitBreakerTripped } from "./backoff";
+import { decideReverifyAction, decideRetryAction, buildSlotAlarmMessage, buildBookingStepMessage, getBookingFailureBackoffUntil } from "./booking-flow";
 import { checkPreSubmitGate, CANONICAL_CALENDAR_ID } from "./pre-submit-gate";
 
 export { JobLockDO };
@@ -770,6 +770,24 @@ export default {
         calendarId: job.calendar_id
       };
 
+      // Instant slot alarm (operator-parallel flow): fire BEFORE the reverify
+      // scan so the operator can open the portal while the bot launches. Dedupe
+      // per job+week in KV (30-min TTL) — slots re-detect every tick while live.
+      if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
+        const alarmKey = `slot_alarm:${job.id}:${slotMonday.replace(/[^a-zA-Z0-9]/g, "")}`;
+        const alreadyAlarmed = env.SESSION_KV
+          ? await env.SESSION_KV.get(alarmKey).catch(() => null)
+          : null;
+        if (!alreadyAlarmed) {
+          bgTasks.push(sendTelegramNotification(
+            env.TELEGRAM_BOT_TOKEN,
+            env.TELEGRAM_CHAT_ID,
+            buildSlotAlarmMessage({ jobId: job.id, clientName: firstName, week: slotMonday })
+          ));
+          if (env.SESSION_KV) bgTasks.push(env.SESSION_KV.put(alarmKey, "1", { expirationTtl: 1800 }).catch(() => null));
+        }
+      }
+
       //  re-verify slot before burning browser budget (step 4 latency gap)
       const reverify = await scanAvailability(job.calendar_id, slotMonday, sessionCookie);
       const reverifyAction = decideReverifyAction(reverify);
@@ -786,6 +804,13 @@ export default {
           attempt: 1,
           classification: "SLOT_GONE"
         })).run());
+        if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
+          bgTasks.push(sendTelegramNotification(
+            env.TELEGRAM_BOT_TOKEN,
+            env.TELEGRAM_CHAT_ID,
+            buildBookingStepMessage("SLOT_GONE", { jobId: job.id, week: slotMonday, attempt: 1 })
+          ));
+        }
         return;
       }
 
@@ -806,6 +831,13 @@ export default {
           attempt: 1,
           classification: "VALIDATION_ERROR"
         })).run());
+        if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
+          bgTasks.push(sendTelegramNotification(
+            env.TELEGRAM_BOT_TOKEN,
+            env.TELEGRAM_CHAT_ID,
+            buildBookingStepMessage("FAILED", { jobId: job.id, week: slotMonday, attempt: 1, classification: "VALIDATION_ERROR", error: gate.blockers.join("; ") })
+          ));
+        }
         return;
       }
 
@@ -821,6 +853,13 @@ export default {
 
       // Playwright wizard is the single real booking path (London evidence: 31 fields, BDC_*, C65P dynamic)
       console.log(`[BOOKING] Launching Playwright wizard for Job ${job.id} week ${slotMonday} [attempt 1]`);
+      if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
+        bgTasks.push(sendTelegramNotification(
+          env.TELEGRAM_BOT_TOKEN,
+          env.TELEGRAM_CHAT_ID,
+          buildBookingStepMessage("STARTED", { jobId: job.id, week: slotMonday, attempt: 1 })
+        ));
+      }
       let pwRes = await executePlaywrightFallback(env.MYBROWSER, decryptedClient, {
         startTime: slotMonday,
         captchaApiKey: env.CAPTCHA_API_KEY,
@@ -844,6 +883,13 @@ export default {
           correlationId,
           attempt: 1
         })).run());
+        if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
+          bgTasks.push(sendTelegramNotification(
+            env.TELEGRAM_BOT_TOKEN,
+            env.TELEGRAM_CHAT_ID,
+            buildBookingStepMessage("SUBMITTED", { jobId: job.id, week: slotMonday, attempt: 1, stage: pwRes.stageReached, slot: pwRes.selectedSlot })
+          ));
+        }
       }
 
       if (pwRes.success && pwRes.referenceId) {
@@ -898,6 +944,13 @@ export default {
           correlationId,
           attempt: 1
         })).run());
+        if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
+          bgTasks.push(sendTelegramNotification(
+            env.TELEGRAM_BOT_TOKEN,
+            env.TELEGRAM_CHAT_ID,
+            buildBookingStepMessage("RETRY", { jobId: job.id, week: slotMonday, attempt: 1, classification: pwRes.classification, error: pwRes.errorMessage, stage: pwRes.stageReached })
+          ));
+        }
 
         bgTasks.push(env.DB.prepare(
           `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
@@ -907,6 +960,13 @@ export default {
           correlationId,
           attempt: 2
         })).run());
+        if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
+          bgTasks.push(sendTelegramNotification(
+            env.TELEGRAM_BOT_TOKEN,
+            env.TELEGRAM_CHAT_ID,
+            buildBookingStepMessage("STARTED", { jobId: job.id, week: slotMonday, attempt: 2 })
+          ));
+        }
 
         const pwRes2 = await executePlaywrightFallback(env.MYBROWSER, decryptedClient, {
           startTime: slotMonday,
@@ -930,6 +990,13 @@ export default {
             correlationId,
             attempt: 2
           })).run());
+          if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
+            bgTasks.push(sendTelegramNotification(
+              env.TELEGRAM_BOT_TOKEN,
+              env.TELEGRAM_CHAT_ID,
+              buildBookingStepMessage("SUBMITTED", { jobId: job.id, week: slotMonday, attempt: 2, stage: pwRes2.stageReached, slot: pwRes2.selectedSlot })
+            ));
+          }
         }
 
         if (pwRes2.success && pwRes2.referenceId) {
@@ -967,10 +1034,12 @@ export default {
         pwRes = pwRes2;
       }
 
-      // Both attempts failed (or no retry) — re-queue ACTIVE with backoff (state machine: BOOKING_FAILED → ACTIVE per backoff)
+      // Both attempts failed (or no retry) — re-queue ACTIVE with NO backoff
+      // (never-park policy: check_count grows per scan tick, so any derived
+      // backoff parks the job ~an hour; the job must stay tick-eligible while
+      // slots verify — breaker/throttle/lock/reverify remain the guards).
       await doStub.fetch("https://lock/release");
-      const checkCount = (job.check_count || 0) + 1;
-      const backoffUntil = getBackoffUntilISO(checkCount);
+      const backoffUntil = getBookingFailureBackoffUntil();
       await env.DB.prepare(
         `UPDATE jobs SET status = 'ACTIVE', backoff_until = ?, last_error_code = ? WHERE id = ?`
       ).bind(backoffUntil, pwRes.errorMessage || "BOOKING_FAILED", job.id).run();
@@ -987,6 +1056,13 @@ export default {
         correlationId,
         attempt: retryDecision === "RETRY" ? 2 : 1
       })).run());
+      if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
+        bgTasks.push(sendTelegramNotification(
+          env.TELEGRAM_BOT_TOKEN,
+          env.TELEGRAM_CHAT_ID,
+          buildBookingStepMessage("FAILED", { jobId: job.id, week: slotMonday, attempt: retryDecision === "RETRY" ? 2 : 1, classification: pwRes.classification, error: pwRes.errorMessage, stage: pwRes.stageReached, slot: pwRes.selectedSlot })
+        ));
+      }
     }));
 
     ctx.waitUntil(Promise.all(bgTasks));
