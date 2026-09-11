@@ -547,14 +547,17 @@ export default {
           if (!Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === dateParam) cairoDay = dateParam;
         }
         //  bulk scan-noise types (NO_APPOINTMENT, UNKNOWN_RESPONSE ≈100% of rows)
-        // carry zero opportunity signal — summaries/history never read them. Selecting 8 days
-        // of them cost ~2.6s CPU on 10k rows (per-row Intl + JSON.parse) and the platform
-        // kills the isolate (HTTP 503 on the 10ms Free budget). Two bounded queries instead:
-        // signal rows (rare types, all days) + UNKNOWN rows (selected Cairo day window only).
-        // Cairo is UTC+2/+3, so [day-1, day+2) UTC strictly contains the Cairo day.
+        // carry zero opportunity signal — summaries/history never read them. The old 8-day
+        // noise-inclusive select cost ~2.6s CPU on 10k rows (per-row Intl + JSON.parse) and
+        // the platform kills the isolate (HTTP 503 on the 10ms Free budget). Two bounded queries instead:
+        // signal rows (rare types, current Cairo month) + UNKNOWN rows (selected Cairo day window only).
+        // History must list every slot-day of the current month (operator demand 2026-09-11):
+        // widening ONLY the rare-type bound from -8 days to month-start costs ~tens of rows.
+        // Cairo is UTC+2/+3, so [day-1, day+2) UTC strictly contains the Cairo day (same for month-start).
+        const monthStart = cairoDay.slice(0, 8) + "01"; // YYYY-MM-01
         const { results: signalResults } = await env.DB.prepare(
-          "SELECT id, job_id, client_id, event_type, duration_ms, details, created_at FROM audit_logs WHERE created_at >= datetime('now', '-8 days') AND event_type NOT IN ('NO_APPOINTMENT','UNKNOWN_RESPONSE') ORDER BY created_at ASC"
-        ).all<any>();
+          "SELECT id, job_id, client_id, event_type, duration_ms, details, created_at FROM audit_logs WHERE created_at >= datetime(?, '-1 day') AND event_type NOT IN ('NO_APPOINTMENT','UNKNOWN_RESPONSE') ORDER BY created_at ASC"
+        ).bind(monthStart).all<any>();
         const { results: unknownResults } = await env.DB.prepare(
           "SELECT id, job_id, client_id, event_type, duration_ms, details, created_at FROM audit_logs WHERE event_type = 'UNKNOWN_RESPONSE' AND created_at >= datetime(?, '-1 day') AND created_at < datetime(?, '+2 days') ORDER BY created_at ASC"
         ).bind(cairoDay, cairoDay).all<any>();
@@ -1425,8 +1428,8 @@ function getAdminHTML(): string {
         <!-- Multi-Day Cairo History -->
         <div style="margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border-subtle);">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
-            <h3 style="font-size:14px; font-weight:700; margin:0;">سجل الأيام السابقة (بتوقيت القاهرة)</h3>
-            <span style="font-size:11px; color:var(--text-dim);">تغطية 8 أيام سابقة من audit_logs</span>
+            <h3 style="font-size:14px; font-weight:700; margin:0;">سجل أيام المواعيد (بتوقيت القاهرة)</h3>
+            <span style="font-size:11px; color:var(--text-dim);">الأيام ذات المواعيد فقط — الشهر الحالي</span>
           </div>
           <div class="table-wrap">
             <table>
@@ -2090,10 +2093,11 @@ function getAdminHTML(): string {
           elDetails.style.color = 'var(--text-dim)';
         }
 
-        // Render Multi-day History
+        // Render Multi-day History — slot-days only, empty days never appear.
         if (elHistory) {
-          if (d.history && d.history.length) {
-            elHistory.innerHTML = d.history.map(function(h){
+          var slotDays = (d.history || []).filter(function(h) { return h.was_open || (h.opportunities_found || 0) > 0; });
+          if (slotDays.length) {
+            elHistory.innerHTML = slotDays.map(function(h){
               var statusPill = h.was_open
                 ? '<span class="status-pill status-active">مفتوحة ✓</span>'
                 : '<span class="status-pill status-paused">مغلقة</span>';
@@ -2110,7 +2114,7 @@ function getAdminHTML(): string {
               '</tr>';
             }).join('');
           } else {
-            elHistory.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-dim); padding:16px;">لا توجد سجلات للأيام السابقة.</td></tr>';
+            elHistory.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-dim); padding:16px;">لا توجد أيام سابقة بها مواعيد — لم تُرصد مواعيد في الأيام الأخيرة.</td></tr>';
           }
         }
       } catch (err) {
