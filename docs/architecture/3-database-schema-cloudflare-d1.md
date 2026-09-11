@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     check_count INTEGER DEFAULT 0,
     last_check TIMESTAMP,
     last_error_code TEXT,
-    backoff_until TIMESTAMP,
+    backoff_until TIMESTAMP, -- NULL = tick-eligible. BOOKING_FAILED requeues NULL since 2026-09-11 (never-park: check_count grows per scan tick, so any derived backoff parked jobs the 60-min cap).
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE TABLE IF NOT EXISTS daily_metrics (
     date TEXT PRIMARY KEY, -- YYYY-MM-DD
     total_checks INTEGER DEFAULT 0,
-    total_browser_seconds REAL DEFAULT 0.0,
+    total_browser_seconds REAL DEFAULT 0.0, -- billed browser work ONLY; the 20s throttle-gate wait is excluded since 2026-09-11 (workStartTime). Feeds the 540s circuit breaker.
     slots_found INTEGER DEFAULT 0,
     bookings_completed INTEGER DEFAULT 0,
     budget_alert_sent INTEGER DEFAULT 0
