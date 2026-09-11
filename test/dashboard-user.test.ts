@@ -33,6 +33,23 @@ test("End-user hero: plain-Arabic request status answers first, no codes", async
   assert.ok(!/[A-Z]+_[A-Z_]+/.test(heroSrc), "hero copy must contain zero TECHNICAL_CODE tokens");
 });
 
+test("Slot-days history: only days that actually had slots appear, empty days hidden", async () => {
+  const { html, js } = await servedHTML();
+  // Section speaks slots, not calendar coverage…
+  assert.ok(html.includes("سجل أيام المواعيد"), "history title must promise slot-days only");
+  assert.ok(html.includes("الأيام ذات المواعيد فقط"), "coverage note must state the filter");
+  assert.ok(html.includes("الشهر الحالي"), "coverage note must state the current-month window");
+  // …and the renderer filters the fetched window to was_open days.
+  assert.ok(
+    /d\.history[^;]*\.filter\(function\(h\)[^}]*was_open/.test(js),
+    "history render must filter d.history to was_open days"
+  );
+  assert.ok(
+    js.includes("لا توجد أيام سابقة بها مواعيد"),
+    "filtered-empty state must say so in plain Arabic"
+  );
+});
+
 test("Simplified view: one tap hides the log/failure tiles, choice persists", async () => {
   const { html, js } = await servedHTML();
   assert.ok(html.includes('id="view-toggle"'), "view toggle button must exist");
