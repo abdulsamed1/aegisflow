@@ -56,7 +56,7 @@ export function resetThrottleLaunchForTests(timestamp = 0): void {
 // every mkdtemp crash retried into a deterministic 429, burning ~20s of
 // daily budget per pair). Pure helper so the rule is unit-testable.
 export function classifyLaunchError(msg: string): FailureClassification {
-  if (/fs\.mkdtemp|not implemented yet|Unable to create new browser|Rate limit exceeded|browserType\.|connectOverCDP|MYBROWSER binding not configured|Neither @cloudflare\/playwright/i.test(msg)) {
+  if (/fs\.mkdtemp|not implemented yet|Unable to create new browser|Rate limit exceeded|browserType\.|connectOverCDP|MYBROWSER binding not configured|Neither @cloudflare\/playwright|Neither @cloudflare\/puppeteer/i.test(msg)) {
     return "LAUNCH_ERROR";
   }
   if (/timeout|network|ECONNRESET|ECONNREFUSED|socket|Navigation failed/i.test(msg)) {
@@ -65,10 +65,92 @@ export function classifyLaunchError(msg: string): FailureClassification {
   return "UNKNOWN";
 }
 
+export interface BrowserFallbackOptions {
+  startTime?: string;
+  captchaApiKey?: string;
+  ai?: any;
+  //  injected launcher (tests): defaults to the @cloudflare/puppeteer path.
+  launcher?: (binding: any) => Promise<any>;
+}
+
+//  Launch MUST go through @cloudflare/puppeteer (prod 2026-09-10/11:
+// @cloudflare/playwright 1.2.0–1.3.6 always crashes in Workers —
+// playwright-core's _connectOverCDPInternal unconditionally calls
+// fs.promises.mkdtemp, which the runtime does not implement — while
+// puppeteer's Workers path (acquire → connect over binding.fetch +
+// WebSocket) is fs-free). Pure wrapper so the rule is unit-testable.
+export async function launchBrowser(
+  browserBinding: any,
+  launcher?: (binding: any) => Promise<any>
+): Promise<any> {
+  if (launcher) return await launcher(browserBinding);
+  const puppeteerModule = await import("@cloudflare/puppeteer").catch(() => null);
+  const puppeteer = (puppeteerModule as any)?.default || puppeteerModule;
+  if (puppeteer && typeof puppeteer.launch === "function") {
+    return await puppeteer.launch(browserBinding);
+  }
+  if (browserBinding && typeof browserBinding.launch === "function") {
+    return await browserBinding.launch();
+  }
+  if (browserBinding && typeof browserBinding.newPage === "function") {
+    return browserBinding;
+  }
+  throw new Error("Neither @cloudflare/puppeteer nor compatible browserBinding available");
+}
+
+// Next-control helpers: CSS :has-text() is Playwright-only, so the portal's
+// Next button (input[value=Next] or a submit button reading "Next") is found
+// by DOM query inside page context instead.
+// Submit-control click for the Office/Calendar/PersonCount steps (Playwright's
+// page.click(selector) does not exist in puppeteer — click in page context).
+async function clickSubmitControl(page: any): Promise<void> {
+  await page.evaluate(() => {
+    // @ts-ignore — browser context evaluation provides DOM document
+    const doc = (globalThis as any).document;
+    const el = doc.querySelector(
+      'input[type="submit"], button[type="submit"], input[value="Next"]'
+    ) as any;
+    if (el) el.click();
+  }).catch(() => null);
+}
+
+async function hasNextControl(page: any): Promise<boolean> {
+  try {
+    return await page.evaluate(() => {
+      // @ts-ignore — browser context evaluation provides DOM document
+      const doc = (globalThis as any).document;
+      if (doc.querySelector('input[name="Command"][value="Next"], input[value="Next"]')) return true;
+      return Array.from(doc.querySelectorAll("button, input[type=submit]")).some(
+        (x: any) => /next/i.test(x.textContent || x.value || "")
+      );
+    });
+  } catch { return false; }
+}
+
+async function clickNextControl(page: any): Promise<void> {
+  await page.evaluate(() => {
+    // @ts-ignore — browser context evaluation provides DOM document
+    const doc = (globalThis as any).document;
+    const input = doc.querySelector('input[name="Command"][value="Next"], input[value="Next"]') as any;
+    if (input) { input.click(); return; }
+    const btn = Array.from(doc.querySelectorAll("button, input[type=submit]")).find(
+      (x: any) => /next/i.test(x.textContent || x.value || "")
+    ) as any;
+    if (btn) btn.click();
+  }).catch(() => null);
+}
+
+async function getAttr(handle: any, name: string): Promise<string> {
+  try {
+    // ElementHandle.evaluate(fn, arg) exists in both Playwright and puppeteer
+    return (await handle.evaluate((el: any, n: string) => el.getAttribute(n), name)) || "";
+  } catch { return ""; }
+}
+
 export async function executePlaywrightFallback(
   browserBinding: any,
   client: DecryptedClientData,
-  opts?: { startTime?: string; captchaApiKey?: string; ai?: any }
+  opts?: BrowserFallbackOptions
 ): Promise<BrowserFallbackResult> {
   const startTime = Date.now();
   let browser: any = null;
@@ -94,18 +176,7 @@ export async function executePlaywrightFallback(
 
     await throttleLaunch();
 
-    const playwrightModule = await import("@cloudflare/playwright").catch(() => null);
-    const playwright = playwrightModule?.default || playwrightModule;
-
-    if (playwright && typeof playwright.launch === "function") {
-      browser = await playwright.launch(browserBinding);
-    } else if (browserBinding && typeof browserBinding.launch === "function") {
-      browser = await browserBinding.launch();
-    } else if (browserBinding && typeof browserBinding.newPage === "function") {
-      browser = browserBinding;
-    } else {
-      throw new Error("Neither @cloudflare/playwright nor compatible browserBinding available");
-    }
+    browser = await launchBrowser(browserBinding, opts?.launcher);
     const page = await browser.newPage();
 
     await page.goto("https://appointment.bmeia.gv.at/", { waitUntil: "domcontentloaded", timeout: 30000 });
@@ -113,41 +184,40 @@ export async function executePlaywrightFallback(
     // Step 1: Office KAIRO
     const officeSel = await page.waitForSelector('select#Office', { timeout: 15000 }).catch(() => null);
     if (officeSel) {
-      await page.selectOption('select#Office', 'KAIRO').catch(() => null);
+      await page.select('select#Office', 'KAIRO').catch(() => null);
       await Promise.all([
         page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null),
-        page.click('input[type="submit"], button[type="submit"], input[value="Next"]').catch(() => null),
+        clickSubmitControl(page),
       ]);
     }
 
     // Step 2: CalendarId (enforce canonical Bachelor)
     const calSel = await page.waitForSelector('select#CalendarId', { timeout: 15000 }).catch(() => null);
     if (calSel) {
-      await page.selectOption('select#CalendarId', String(CANONICAL_CALENDAR_ID)).catch(() => null);
+      await page.select('select#CalendarId', String(CANONICAL_CALENDAR_ID)).catch(() => null);
       await Promise.all([
         page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null),
-        page.click('input[type="submit"], button[type="submit"], input[value="Next"]').catch(() => null),
+        clickSubmitControl(page),
       ]);
     }
 
     // Step 3: PersonCount = 1
     const pcSel = await page.waitForSelector('select#PersonCount', { timeout: 10000 }).catch(() => null);
     if (pcSel) {
-      await page.selectOption('select#PersonCount', '1').catch(() => null);
+      await page.select('select#PersonCount', '1').catch(() => null);
       await Promise.all([
         page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null),
-        page.click('input[type="submit"], button[type="submit"], input[value="Next"]').catch(() => null),
+        clickSubmitControl(page),
       ]);
     }
 
     // Step 4: Info page — just Next
-    const nextBtn = await page.$('input[value="Next"], button:has-text("Next")');
-    if (nextBtn) {
-      const hasGrid = await page.$('input[type="radio"]').then(Boolean);
+    if (await hasNextControl(page)) {
+      const hasGrid = await page.$('input[type="radio"]').then(Boolean).catch(() => false);
       if (!hasGrid) {
         await Promise.all([
           page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null),
-          nextBtn.click().catch(() => null),
+          clickNextControl(page),
         ]);
       }
     }
@@ -157,7 +227,7 @@ export async function executePlaywrightFallback(
       const currentRadios = await page.$$('input[type="radio"]');
       let hasTargetWeekRadio = false;
       for (const r of currentRadios) {
-        const val = await r.getAttribute("value").catch(() => "");
+        const val = await getAttr(r, "value");
         if (val) {
           const slotDate = new Date(val);
           if (!Number.isNaN(slotDate.getTime()) && calculateMondayString(slotDate) === opts.startTime) {
@@ -191,7 +261,7 @@ export async function executePlaywrightFallback(
           doc.body.appendChild(form);
           form.submit();
         }, { office: 'KAIRO', calendarId: String(CANONICAL_CALENDAR_ID), monday: opts.startTime });
-        await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => null);
+        await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null);
       }
     }
 
@@ -203,7 +273,7 @@ export async function executePlaywrightFallback(
       if (opts?.startTime) {
         // Strict verification: only accept a radio whose value date belongs to the target week
         for (const r of radios) {
-          const val = await r.getAttribute("value").catch(() => "");
+          const val = await getAttr(r, "value");
           if (val) {
             const slotDate = new Date(val);
             if (!Number.isNaN(slotDate.getTime()) && calculateMondayString(slotDate) === opts.startTime) {
@@ -217,7 +287,7 @@ export async function executePlaywrightFallback(
       } else {
         // No specific week targeted (general dry-run / unit tests)
         targetRadio = radios[0];
-        selectedSlot = await targetRadio?.getAttribute("value").catch(() => undefined);
+        selectedSlot = await getAttr(targetRadio, "value") || undefined;
         if (targetRadio) stageReached = "SLOT_SELECTION";
       }
     }
@@ -238,12 +308,11 @@ export async function executePlaywrightFallback(
     }
 
     if (targetRadio) {
-      await targetRadio.check().catch(() => targetRadio.click().catch(() => null));
-      const gridNext = await page.$('input[name="Command"][value="Next"], input[value="Next"], button:has-text("Next")');
-      if (gridNext) {
+      await targetRadio.click().catch(() => null);
+      if (await hasNextControl(page)) {
         await Promise.all([
           page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null),
-          gridNext.click().catch(() => null),
+          clickNextControl(page),
         ]);
       }
     }
@@ -281,14 +350,27 @@ export async function executePlaywrightFallback(
     stageReached = "FORM_FILL";
 
     // Step 6: Personal data — fill using REAL portal names (London evidence, 31 fields)
-    //  helper to fill if element exists, ignore if not
+    // helper to fill if element exists, ignore if not (puppeteer has no
+    // page.fill — set the value in page context and fire input/change so
+    // ASP.NET validators observe the edit)
     const fill = async (sel: string, val: string) => {
-      const el = await page.$(sel);
-      if (el && val) await page.fill(sel, val).catch(() => null);
+      const el = await page.$(sel).catch(() => null);
+      if (el && val) {
+        await page.evaluate((args: { sel: string; val: string }) => {
+          // @ts-ignore — browser context evaluation provides DOM document
+          const doc = (globalThis as any).document;
+          const target = doc.querySelector(args.sel) as any;
+          if (!target) return;
+          target.focus?.();
+          target.value = args.val;
+          target.dispatchEvent(new Event("input", { bubbles: true }));
+          target.dispatchEvent(new Event("change", { bubbles: true }));
+        }, { sel, val }).catch(() => null);
+      }
     };
     const select = async (sel: string, val: string) => {
-      const el = await page.$(sel);
-      if (el && val) await page.selectOption(sel, val).catch(() => page.fill(sel, val).catch(() => null));
+      const el = await page.$(sel).catch(() => null);
+      if (el && val) await page.select(sel, val).catch(() => fill(sel, val).catch(() => null));
     };
 
     await fill('input#Lastname, input[name="Lastname"]', client.lastName);
@@ -313,7 +395,7 @@ export async function executePlaywrightFallback(
 
     // GDPR consent
     const consent = await page.$('input#DSGVOAccepted, input[name="DSGVOAccepted"]');
-    if (consent) await consent.check().catch(() => null);
+    if (consent) await consent.click().catch(() => null);
 
     // CAPTCHA: Captcha_CaptchaImage + CaptchaText (BDC_* hidden fields are auto-submitted)
     //  open-source local OCR (tesseract.js) — no API key, no polling, free per D3
@@ -493,7 +575,7 @@ export async function executePlaywrightFallback(
     };
   } finally {
     //  launch-crash cleanup limit (prod 2026-09-10): `browser` is only
-    // assigned AFTER playwright.launch() resolves, so an exception thrown
+    // assigned AFTER launchBrowser() resolves, so an exception thrown
     // before that (e.g. fs.mkdtemp inside connectOverCDP) leaves `browser`
     // null here — yet the remote side may ALREADY have allocated a session,
     // because launch() calls acquire() (HTTP /v1/acquire) BEFORE the local
