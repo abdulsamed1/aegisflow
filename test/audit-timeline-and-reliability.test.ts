@@ -367,7 +367,9 @@ test("Slot-Selection Invariant: calculateMondayString reliably maps all 7 days t
 });
 
 test("Slot-Selection Invariant: Unmatched forward week refuses arbitrary radio fallback and aborts with SLOT_GONE", async () => {
-  // Mock browser binding where grid contains radios for a DIFFERENT week (e.g. 10/12/2026)
+  // Mock browser binding where grid contains radios for a DIFFERENT week (e.g. 10/12/2026).
+  // Puppeteer-shaped fakes (ElementHandle.evaluate — no getAttribute/check),
+  // injected via the launcher option so no real launch is attempted.
   let checkedRadioValue: string | null = null;
   const mockPage = {
     goto: async () => {},
@@ -375,10 +377,8 @@ test("Slot-Selection Invariant: Unmatched forward week refuses arbitrary radio f
       if (sel.includes("Office") || sel.includes("CalendarId") || sel.includes("PersonCount")) return {};
       return null;
     },
-    selectOption: async () => {},
-    click: async () => {},
+    select: async () => [],
     waitForNavigation: async () => {},
-    waitForLoadState: async () => {},
     evaluate: async () => {},
     content: async () => `<html><body><input type="radio" name="Start" value="10/12/2026 9:00:00 AM"></body></html>`,
     screenshot: async () => Buffer.from("fake-shot"),
@@ -386,8 +386,8 @@ test("Slot-Selection Invariant: Unmatched forward week refuses arbitrary radio f
       if (sel.includes('input[type="radio"]')) {
         return [
           {
-            getAttribute: async (attr: string) => attr === "value" ? "10/12/2026 9:00:00 AM" : null,
-            check: async () => { checkedRadioValue = "10/12/2026 9:00:00 AM"; },
+            evaluate: async (fn: any, name: string) =>
+              typeof fn === "function" && name === "value" ? "10/12/2026 9:00:00 AM" : null,
             click: async () => { checkedRadioValue = "10/12/2026 9:00:00 AM"; }
           }
         ];
@@ -403,13 +403,10 @@ test("Slot-Selection Invariant: Unmatched forward week refuses arbitrary radio f
     close: async () => {}
   };
 
-  const mockBinding = {
-    launch: async () => mockBrowser
-  };
-
   // Target week requested: 9/21/2026 12:00:00 AM, but screen only has 10/12/2026
-  const res = await executePlaywrightFallback(mockBinding, validBachelorClient, {
-    startTime: "9/21/2026 12:00:00 AM"
+  const res = await executePlaywrightFallback({}, validBachelorClient, {
+    startTime: "9/21/2026 12:00:00 AM",
+    launcher: async () => mockBrowser
   });
 
   assert.strictEqual(res.success, false);
