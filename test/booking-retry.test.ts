@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { classifyLaunchError, executePlaywrightFallback } from "../src/browser-fallback";
+import { classifyLaunchError, executePlaywrightFallback, resetThrottleLaunchForTests } from "../src/browser-fallback";
 import { decideRetryAction } from "../src/booking-flow";
 
 // Regression (prod 2026-09-06/08/10, job_1788962419784): the scanner finds a
@@ -103,4 +103,33 @@ test("executePlaywrightFallback: missing browser binding surfaces LAUNCH_ERROR (
   assert.strictEqual(res.success, false);
   assert.strictEqual(res.classification, "LAUNCH_ERROR");
   assert.ok(res.errorMessage && res.errorMessage.length > 0, "platform error must stay visible for the operator");
+});
+
+test("prod sequence 2026-09-06/08/10: mkdtemp crash → orchestration requeues, never same-tick relaunches", async () => {
+  // Exact production pair (D1 audit_logs): first attempt throws
+  // "browserType.connectOverCDP: [unenv] fs.mkdtemp is not implemented yet!",
+  // then 16s later the same job 429s ("Unable to create new browser") — the
+  // blind same-tick retry after a deterministic platform crash. Chained the
+  // way scheduled() chains them (attempt → rescan → decideRetryAction), a
+  // LAUNCH_ERROR first attempt must yield REQUEUE even when the rescan still
+  // shows SLOTS, so no second executePlaywrightFallback runs in that tick.
+  resetThrottleLaunchForTests();
+  const client: any = { category: "Bachelor", calendarId: 44281520 };
+  const first = await executePlaywrightFallback({}, client, {
+    launcher: async () => {
+      throw new Error("browserType.connectOverCDP: [unenv] fs.mkdtemp is not implemented yet!");
+    },
+  } as any);
+  assert.strictEqual(first.success, false);
+  assert.strictEqual(first.classification, "LAUNCH_ERROR");
+  assert.strictEqual(
+    decideRetryAction(first, { status: "SLOTS" }, false),
+    "REQUEUE",
+    "mkdtemp-classified failure must requeue, not relaunch same-tick"
+  );
+  // The deterministic follow-up is likewise a launch failure, never a retry.
+  assert.strictEqual(
+    classifyLaunchError("Unable to create new browser: code: 429: message: Rate limit exceeded"),
+    "LAUNCH_ERROR"
+  );
 });

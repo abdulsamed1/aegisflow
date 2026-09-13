@@ -534,6 +534,61 @@ test("Dashboard: audit viewer defaults to signal-only", async () => {
   assert.ok(html.includes("/api/logs?limit=200"), "Viewer must pull a deeper window for signal filtering");
 });
 
+test("API Endpoint: GET /api/logs?signal=1 excludes scan-noise types in SQL", async () => {
+  // Regression (prod 2026-09-13): /api/logs?limit=200 unfiltered returns the
+  // latest 200 rows; on a live day those are ~all NO_APPOINTMENT /
+  // UNKNOWN_RESPONSE (843 noise vs 7 signal rows), so the dashboard's default
+  // signal-only view renders "no matching events" while /api/status (dedicated
+  // type-filtered query) shows the same failures. The viewer must be able to
+  // fetch a noise-excluded window instead of filtering 200 noise rows to zero.
+  const seen: { sql: string; args: any[] }[] = [];
+  const rows = [
+    { id: 1, event_type: "NO_APPOINTMENT", created_at: "2026-09-13 14:00:00" },
+    { id: 2, event_type: "UNKNOWN_RESPONSE", created_at: "2026-09-13 14:01:00" },
+    { id: 3, event_type: "BOOKING_FAILED", created_at: "2026-09-13 06:44:45" },
+  ];
+  const mockDB: any = {
+    prepare: (sql: string) => {
+      const entry = { sql, args: [] as any[] };
+      seen.push(entry);
+      const stmt: any = {
+        bind: (...args: any[]) => { entry.args = args; return stmt; },
+        // Mock enforces the SQL noise exclusion the way D1 would.
+        all: async () => ({
+          results: sql.includes("NOT IN")
+            ? rows.filter((r) => r.event_type !== "NO_APPOINTMENT" && r.event_type !== "UNKNOWN_RESPONSE")
+            : rows,
+        }),
+      };
+      return stmt;
+    },
+  };
+  const env: any = { DB: mockDB, JOB_LOCK: {}, SESSION_KV: {}, MYBROWSER: {}, ENVIRONMENT: "test", ADMIN_API_KEY: "test-admin-key" };
+  const res = await worker.fetch(new Request("https://aegisflow.local/api/logs?limit=200&signal=1"), env, {} as any);
+  assert.strictEqual(res.status, 200);
+  assert.ok(
+    seen[0].sql.includes("NOT IN") && seen[0].sql.includes("NO_APPOINTMENT") && seen[0].sql.includes("UNKNOWN_RESPONSE"),
+    "signal query must exclude noise types in SQL, got: " + seen[0].sql
+  );
+  const body = await res.json() as any[];
+  assert.ok(body.every((r: any) => r.event_type !== "NO_APPOINTMENT" && r.event_type !== "UNKNOWN_RESPONSE"), "signal window must contain no scan noise");
+  assert.ok(body.some((r: any) => r.event_type === "BOOKING_FAILED"), "older signal rows must survive the window");
+
+  // Legacy shape (no param) is unchanged for explicit all-events views.
+  seen.length = 0;
+  const res2 = await worker.fetch(new Request("https://aegisflow.local/api/logs?limit=200"), env, {} as any);
+  assert.strictEqual(res2.status, 200);
+  assert.ok(!seen[0].sql.includes("NOT IN"), "default /api/logs shape must stay unfiltered");
+});
+
+test("Dashboard: audit viewer fetches the signal window and explains the empty state", async () => {
+  const env = createMockEnv();
+  const res = await worker.fetch(new Request("https://aegisflow.local/"), env, {} as any);
+  const html = await res.text();
+  assert.ok(html.includes("signal=1"), "Viewer must request the noise-excluded window for its signal default");
+  assert.ok(!html.includes("جرّب توسيع التصفية أو تحديث السجل"), "Empty copy must not imply the filter is wrong when failures exist further back");
+});
+
 test("Dashboard: noisy chronological timeline section is removed", async () => {
   // Operator decision: the per-event timeline (mostly UNKNOWN_RESPONSE noise with
   // broken mobile layout) goes away; the multi-day history + report tiles stay.
