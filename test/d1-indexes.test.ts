@@ -19,6 +19,9 @@ const schemaSQL = readFileSync(path.join(here, "..", "db", "schema.sql"), "utf8"
 
 // Exact query shapes issued by src/index.ts (LIMIT values as the app uses).
 const LOGS_QUERY = "SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 200";
+const LOGS_SIGNAL_QUERY =
+  "SELECT * FROM audit_logs WHERE event_type NOT IN ('NO_APPOINTMENT','UNKNOWN_RESPONSE') " +
+  "ORDER BY created_at DESC LIMIT 200";
 const STATUS_QUERY =
   "SELECT job_id, client_id, event_type, details, created_at FROM audit_logs " +
   "WHERE event_type IN ('BOOKING_FAILED','SLOT_GONE_PRE_LAUNCH','PRE_SUBMIT_BLOCKED','BOOKING_RETRY') " +
@@ -61,6 +64,18 @@ test("D1: /api/logs query shape must not full-scan audit_logs (needs created_at 
   }
 });
 
+test("D1: /api/logs signal window (?signal=1) must not full-scan audit_logs", () => {
+  // Regression (prod 2026-09-13): the viewer's signal default fetched the
+  // unfiltered latest-200 rows (~all scan noise) and filtered to an empty
+  // "no events" view. The noise-excluded window must stay index-backed so the
+  // every-10s poll cannot burn quota again.
+  const db = seedDb();
+  try {
+    assert.strictEqual(planUsesFullScan(db, LOGS_SIGNAL_QUERY), false, "signal window (NOT IN + ORDER BY created_at DESC LIMIT) must use an index, not SCAN");
+  } finally {
+    db.close();
+  }
+});
 test("D1: /api/status recentFailures query shape must not full-scan audit_logs", () => {
   const db = seedDb();
   try {

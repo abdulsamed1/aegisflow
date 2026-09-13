@@ -586,7 +586,18 @@ export default {
       if (path === "/api/logs" && request.method === "GET") {
         const rawLimit = parseInt(url.searchParams.get("limit") || "50", 10);
         const limit = Number.isFinite(rawLimit) ? Math.min(200, Math.max(1, rawLimit)) : 50;
-        const { results } = await env.DB.prepare("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ?").bind(limit).all();
+        //  signal window (prod 2026-09-13): the unfiltered latest-200 rows on a
+        // live day are ~all NO_APPOINTMENT/UNKNOWN_RESPONSE (843 noise vs 7
+        // signal), so the viewer's default signal-only filter rendered "no
+        // matching events" while /api/status showed the same failures. Filter
+        // the bulk noise in SQL (index-backed ORDER BY walk, same plan class
+        // as the unfiltered shape) instead of fetching noise to discard.
+        // Default (no param) keeps the legacy unfiltered shape for explicit
+        // all-events views.
+        const signalOnly = url.searchParams.get("signal") === "1";
+        const { results } = signalOnly
+          ? await env.DB.prepare("SELECT * FROM audit_logs WHERE event_type NOT IN ('NO_APPOINTMENT','UNKNOWN_RESPONSE') ORDER BY created_at DESC LIMIT ?").bind(limit).all()
+          : await env.DB.prepare("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ?").bind(limit).all();
         return new Response(JSON.stringify((results || []).slice(0, limit)), {
           headers: { "Content-Type": "application/json", ...corsHeaders }
         });
@@ -1869,7 +1880,7 @@ function getAdminHTML(): string {
       }).slice(0, 50);
       var tb = document.getElementById("audit-rows");
       if (!out.length) {
-        tb.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:24px;"><div class="empty-state" style="padding:12px;"><div class="t">لا توجد أحداث مطابقة</div><div class="d">جرّب توسيع التصفية أو تحديث السجل</div><button class="btn btn-outline-light btn-sm" onclick="loadAudit()">تحديث السجل</button></div></td></tr>';
+        tb.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:24px;"><div class="empty-state" style="padding:12px;"><div class="t">لا توجد أحداث مهمة في النافذة المعروضة</div><div class="d">يعرض السجل أحدث 200 حدث مهم — قد توجد أحداث أقدم، ولوحة الصحة أعلاه تعرض أحدث الإخفاقات</div><button class="btn btn-outline-light btn-sm" onclick="loadAudit()">تحديث السجل</button></div></td></tr>';
         return;
       }
       tb.innerHTML = out.map(function(r) {
@@ -1878,13 +1889,25 @@ function getAdminHTML(): string {
     }
     async function loadAudit() {
       try {
-        window.__audit = await fetchJSON("/api/logs?limit=200");
+        //  signal default fetches the noise-excluded window (prod 2026-09-13:
+        // unfiltered latest-200 rows are ~all scan noise, which the default
+        // signal filter then reduces to a misleading "no events"). Explicit
+        // all-events views keep the legacy unfiltered fetch.
+        var selEl = document.getElementById("audit-type");
+        var curVal = (selEl && selEl.value) || SIGNAL_DEFAULT;
+        var url = "/api/logs?limit=200" + (curVal === SIGNAL_DEFAULT ? "&signal=1" : "");
+        window.__audit = await fetchJSON(url);
         renderAudit();
       } catch (err) {
         toast("تعذر تحميل سجل التدقيق: " + (err && err.message ? err.message : err), "error", "audit");
       }
     }
-    document.getElementById("audit-type").addEventListener("change", renderAudit);
+    document.getElementById("audit-type").addEventListener("change", function() {
+      // Switching back to all-events needs a refetch: the signal window never
+      // contained the noise rows. Any other selection filters client-side.
+      var v = document.getElementById("audit-type").value || "";
+      if (v === "" || NOISE_TYPES[v]) { loadAudit(); } else { renderAudit(); }
+    });
     document.getElementById("audit-search").addEventListener("input", renderAudit);
 
     async function loadDashboard() {
