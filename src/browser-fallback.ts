@@ -187,7 +187,17 @@ export async function executePlaywrightFallback(
     browser = await launchBrowser(browserBinding, opts?.launcher);
     const page = await browser.newPage();
 
-    await page.goto("https://appointment.bmeia.gv.at/", { waitUntil: "domcontentloaded", timeout: 30000 });
+    // Step tag (prod 2026-09-13: a bare "Navigation timeout of 30000 ms
+    // exceeded" at stage INIT needed a source cross-reference to attribute —
+    // this is the only un-caught 30000ms navigation; every waitForNavigation
+    // is 15/20s and swallowed by .catch). Tag the step so the audit row says
+    // it. Original text stays verbatim so classifyLaunchError still sees
+    // "timeout" → TRANSIENT_ERROR.
+    try {
+      await page.goto("https://appointment.bmeia.gv.at/", { waitUntil: "domcontentloaded", timeout: 30000 });
+    } catch (gotoErr: any) {
+      throw new Error("portal-home goto (initial navigation, 30s): " + (gotoErr?.message || gotoErr));
+    }
 
     // Step 1: Office KAIRO
     const officeSel = await page.waitForSelector('select#Office', { timeout: 15000 }).catch(() => null);

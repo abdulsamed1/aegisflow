@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { executePlaywrightFallback } from "../src/browser-fallback";
+import { executePlaywrightFallback, resetThrottleLaunchForTests } from "../src/browser-fallback";
 import { calculateMondayString } from "../src/scheduler";
 
 // Regression (prod 2026-09-10/11): EVERY booking attempt crashes inside
@@ -90,4 +90,36 @@ test("empty grid with target week → SLOT_GONE (not a launch failure)", async (
   );
   assert.strictEqual(res.success, false);
   assert.strictEqual(res.classification, "SLOT_GONE");
+});
+
+test("initial portal navigation timeout carries the failing step tag (prod 2026-09-13)", async () => {
+  // Prod 2026-09-13 (job_1788962419784): the only booking attempt of the day
+  // failed with a bare "Navigation timeout of 30000 ms exceeded" at stage
+  // INIT — attributable to the initial page.goto only by cross-referencing
+  // source (it is the sole un-caught 30000ms navigation; every
+  // waitForNavigation is 15/20s and swallowed). The audit row must name the
+  // step so future timeouts are diagnosable without reading source.
+  resetThrottleLaunchForTests();
+  const timeoutPage = {
+    ...fakePage({}),
+    goto: async () => {
+      throw new Error("Navigation timeout of 30000 ms exceeded");
+    },
+  };
+  const res = await executePlaywrightFallback(
+    {},
+    BACHELOR_CLIENT,
+    { launcher: async () => fakeBrowser(timeoutPage) } as any
+  );
+  assert.strictEqual(res.success, false);
+  assert.strictEqual(res.classification, "TRANSIENT_ERROR");
+  assert.strictEqual(res.stageReached, "INIT");
+  assert.ok(
+    res.errorMessage && res.errorMessage.includes("portal-home goto"),
+    "timeout must name the initial-navigation step, got: " + res.errorMessage
+  );
+  assert.ok(
+    res.errorMessage && res.errorMessage.includes("Navigation timeout of 30000 ms exceeded"),
+    "original portal text must be preserved verbatim for classification continuity"
+  );
 });

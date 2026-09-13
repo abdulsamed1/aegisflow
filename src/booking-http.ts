@@ -65,6 +65,12 @@ export async function executeDirectHttpBooking(
   mondayDateString: string,
   cookie?: string
 ): Promise<HttpBookingResult> {
+  // Bachelor-only lock (same rule as the payload builders below): without
+  // this, a caller-supplied preSerializedBody skips buildStep3DetailsPayload
+  // and its guard, sending a live portal POST for a non-Bachelor client.
+  if (client.category !== "Bachelor" || client.calendarId !== CANONICAL_CALENDAR_ID) {
+    throw new Error(`Bachelor category and canonical calendar ID (${CANONICAL_CALENDAR_ID}) required. Got category="${client.category}", calendarId=${client.calendarId}`);
+  }
   const startTime = Date.now();
 
   const body = client.preSerializedBody || buildStep3DetailsPayload(client, "AUTO", mondayDateString);
