@@ -1,13 +1,38 @@
 {
   "name": "aegisflow",
   "version": "1.0.0",
-  "description": "BMEIA Austria Visa Appointment Automation Platform",
+  "description": "High-concurrency consular appointment scheduling engine on Cloudflare Workers edge architecture",
   "main": "src/index.ts",
+  "license": "MIT",
+  "author": "Abdul Samed",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/abdulsamed1/aegisflow.git"
+  },
+  "bugs": {
+    "url": "https://github.com/abdulsamed1/aegisflow/issues"
+  },
+  "homepage": "https://github.com/abdulsamed1/aegisflow#readme",
+  "keywords": [
+    "cloudflare-workers",
+    "automation",
+    "puppeteer",
+    "browser-rendering",
+    "whisper-ai",
+    "durable-objects",
+    "d1-sqlite",
+    "appointment-scheduler",
+    "captcha-solver",
+    "typescript",
+    "edge-computing",
+    "zero-trust-encryption"
+  ],
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test test/*.test.ts",
+    "d1:init:local": "wrangler d1 execute DB --local --file=db/schema.sql",
     "d1:init": "wrangler d1 execute opran-booking-db --file=db/schema.sql"
   },
   "dependencies": {

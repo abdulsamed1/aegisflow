@@ -26,6 +26,7 @@ export interface Env {
   ENVIRONMENT?: string;
   SCAN_BURSTS?: string;
   PLAN_TIER?: string;
+  ENABLE_PRE_LAUNCH_REVERIFY?: string;
 }
 
 //  tier-aware burst clamp — Free tier caps to 2 (<50 subrequests); Workers Paid caps to 12 (D5/FR-4)
@@ -802,30 +803,35 @@ export default {
         }
       }
 
-      //  re-verify slot before burning browser budget (step 4 latency gap)
-      const reverify = await scanAvailability(job.calendar_id, slotMonday, sessionCookie);
-      const reverifyAction = decideReverifyAction(reverify);
-      if (reverifyAction !== "PROCEED") {
-        console.warn(`[REVERIFY] Slot gone before Playwright for Job ${job.id}: ${reverify.status} — releasing lock without browser launch`);
-        await doStub.fetch("https://lock/release");
-        bgTasks.push(env.DB.prepare(
-          `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
-           VALUES (?, ?, 'SLOT_GONE_PRE_LAUNCH', ?, ?)`
-        ).bind(job.id, job.client_id, reverify.durationMs, JSON.stringify({
-          week: slotMonday,
-          status: reverify.status,
-          correlationId,
-          attempt: 1,
-          classification: "SLOT_GONE"
-        })).run());
-        if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
-          bgTasks.push(sendTelegramNotification(
-            env.TELEGRAM_BOT_TOKEN,
-            env.TELEGRAM_CHAT_ID,
-            buildBookingStepMessage("SLOT_GONE", { jobId: job.id, week: slotMonday, attempt: 1 })
-          ));
+      // Fast-track booking on fresh slot discovery (OPT-4):
+      // When slotResult was just detected in the current scan burst, skip redundant
+      // HTTP reverify to save ~200-400ms of critical latency and beat competing bots.
+      // The browser wizard itself verifies slot presence in the scheduler grid before submit.
+      if (env.ENABLE_PRE_LAUNCH_REVERIFY === "true") {
+        const reverify = await scanAvailability(job.calendar_id, slotMonday, sessionCookie);
+        const reverifyAction = decideReverifyAction(reverify);
+        if (reverifyAction !== "PROCEED") {
+          console.warn(`[REVERIFY] Slot gone before Playwright for Job ${job.id}: ${reverify.status} — releasing lock without browser launch`);
+          await doStub.fetch("https://lock/release");
+          bgTasks.push(env.DB.prepare(
+            `INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details)
+             VALUES (?, ?, 'SLOT_GONE_PRE_LAUNCH', ?, ?)`
+          ).bind(job.id, job.client_id, reverify.durationMs, JSON.stringify({
+            week: slotMonday,
+            status: reverify.status,
+            correlationId,
+            attempt: 1,
+            classification: "SLOT_GONE"
+          })).run());
+          if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
+            bgTasks.push(sendTelegramNotification(
+              env.TELEGRAM_BOT_TOKEN,
+              env.TELEGRAM_CHAT_ID,
+              buildBookingStepMessage("SLOT_GONE", { jobId: job.id, week: slotMonday, attempt: 1 })
+            ));
+          }
+          return;
         }
-        return;
       }
 
       // Pre-submit gate: validate all required fields before burning browser budget
