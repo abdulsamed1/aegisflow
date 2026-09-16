@@ -87,6 +87,25 @@ test("captcha audio: selects tiny-en when length is 4-5 chars", async () => {
   assert.strictEqual(code, "ABCD");
 });
 
+test("captcha audio: short-circuits on tiny-en success without invoking turbo model", async () => {
+  const { solveCaptchaAudio } = await import("../src/captcha");
+  const fakeAudio = new Uint8Array([1, 2, 3, 4]);
+  let turboCalled = false;
+  const mockAi = {
+    run: async (model: string) => {
+      if (model.includes("tiny")) return { text: "9, 8, 2, 1" };
+      if (model.includes("turbo")) {
+        turboCalled = true;
+        return { text: "9, 8, 2, 1" };
+      }
+      return {};
+    }
+  };
+  const code = await solveCaptchaAudio(fakeAudio, mockAi);
+  assert.strictEqual(code, "9821");
+  assert.strictEqual(turboCalled, false, "Turbo model must NOT be called when tiny-en succeeds");
+});
+
 test("captcha audio: falls back to turbo when tiny-en produces invalid length", async () => {
   const { solveCaptchaAudio } = await import("../src/captcha");
   const fakeAudio = new Uint8Array([1, 2, 3, 4]);

@@ -180,32 +180,49 @@ export async function solveCaptchaAudio(
     return code;
   }
 
-  //  parallel whisper execution when ai binding present — eliminates sequential fallback latency gap
+  //  sequential whisper execution: tiny-en first (fast), turbo fallback only when needed (OPT-7)
   const t0 = Date.now();
   try {
     if (ai) {
-      const [tinySettled, turboSettled] = await Promise.allSettled([
-        run("@cf/openai/whisper-tiny-en"),
-        run("@cf/openai/whisper-large-v3-turbo")
-      ]);
-      const tinyCode = tinySettled.status === "fulfilled" ? tinySettled.value : "";
-      const turboCode = turboSettled.status === "fulfilled" ? turboSettled.value : "";
+      let tinyCode = "";
+      let tinyErr = "";
+      try {
+        tinyCode = await run("@cf/openai/whisper-tiny-en");
+        if (tinyCode.length >= 4 && tinyCode.length <= 5) {
+          console.log(`[CAPTCHA Audio] Solved code="${tinyCode}" via whisper-tiny-en in ${Date.now() - t0}ms`);
+          return tinyCode;
+        }
+      } catch (err: any) {
+        tinyErr = err?.message || "tiny failed";
+      }
+
+      // If tiny-en was invalid or failed, fall back to whisper-large-v3-turbo
+      let turboCode = "";
+      let turboErr = "";
+      try {
+        turboCode = await run("@cf/openai/whisper-large-v3-turbo");
+      } catch (err: any) {
+        turboErr = err?.message || "turbo failed";
+      }
 
       let chosen = "";
       let model = "";
-      if (tinyCode.length >= 4 && tinyCode.length <= 5) {
-        chosen = tinyCode;
-        model = "whisper-tiny-en";
-      } else if (turboCode.length >= 4 && turboCode.length <= 5) {
+      if (turboCode.length >= 4 && turboCode.length <= 5) {
         chosen = turboCode;
         model = "whisper-large-v3-turbo";
-      } else if (tinyCode || turboCode) {
-        chosen = (tinyCode && turboCode) ? (tinyCode.length > turboCode.length ? turboCode : tinyCode) : (tinyCode || turboCode);
+      } else if (tinyCode.length >= 3 && turboCode.length >= 3) {
+        chosen = tinyCode.length > turboCode.length ? turboCode : tinyCode;
         model = chosen === turboCode ? "whisper-large-v3-turbo" : "whisper-tiny-en";
+      } else if (turboCode.length >= 3) {
+        chosen = turboCode;
+        model = "whisper-large-v3-turbo";
+      } else if (tinyCode.length >= 3) {
+        chosen = tinyCode;
+        model = "whisper-tiny-en";
       }
 
       if (!chosen || chosen.length < 3) {
-        const err = tinySettled.status === "rejected" ? tinySettled.reason?.message : (turboSettled.status === "rejected" ? turboSettled.reason?.message : "transcription failed");
+        const err = turboErr || tinyErr || "transcription failed";
         throw new Error(`Whisper audio transcription failed: ${err}`);
       }
       console.log(`[CAPTCHA Audio] Solved code="${chosen}" via ${model} in ${Date.now() - t0}ms`);

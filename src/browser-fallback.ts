@@ -140,6 +140,49 @@ async function clickNextControl(page: any): Promise<void> {
   }).catch(() => null);
 }
 
+async function setInputValue(page: any, sel: string, val: string): Promise<void> {
+  if (!val) return;
+  await page.evaluate((args: { sel: string; val: string }) => {
+    // @ts-ignore — browser context evaluation provides DOM document
+    const doc = (globalThis as any).document;
+    const target = doc.querySelector(args.sel) as any;
+    if (!target) return;
+    target.focus?.();
+    target.value = args.val;
+    target.dispatchEvent(new Event("input", { bubbles: true }));
+    target.dispatchEvent(new Event("change", { bubbles: true }));
+  }, { sel, val }).catch(() => null);
+}
+
+/** POST a hidden form to /HomeWeb/Scheduler — used by OPT-1 fast-path and Step 5 week nav */
+async function submitSchedulerForm(
+  page: any,
+  args: { office: string; calendarId: string; monday: string }
+): Promise<void> {
+  await page.evaluate((a: { office: string; calendarId: string; monday: string }) => {
+    // @ts-ignore — browser context evaluation provides DOM document
+    const doc = (globalThis as any).document;
+    const form = doc.createElement('form');
+    form.method = 'POST';
+    form.action = '/HomeWeb/Scheduler';
+    const add = (name: string, val: string) => {
+      const input = doc.createElement('input');
+      input.type = 'hidden';
+      input.name = name;
+      input.value = val;
+      form.appendChild(input);
+    };
+    add('Language', 'en');
+    add('Office', a.office);
+    add('CalendarId', a.calendarId);
+    add('PersonCount', '1');
+    add('Monday', a.monday);
+    add('Command', 'Next');
+    doc.body.appendChild(form);
+    form.submit();
+  }, args);
+}
+
 async function getAttr(handle: any, name: string): Promise<string> {
   try {
     // ElementHandle.evaluate(fn, arg) exists in both Playwright and puppeteer
@@ -187,56 +230,76 @@ export async function executePlaywrightFallback(
     browser = await launchBrowser(browserBinding, opts?.launcher);
     const page = await browser.newPage();
 
-    // Step tag (prod 2026-09-13: a bare "Navigation timeout of 30000 ms
-    // exceeded" at stage INIT needed a source cross-reference to attribute —
-    // this is the only un-caught 30000ms navigation; every waitForNavigation
-    // is 15/20s and swallowed by .catch). Tag the step so the audit row says
+    // Step tag (prod 2026-09-13: bounded 15s initial navigation. Tag the step so the audit row says
     // it. Original text stays verbatim so classifyLaunchError still sees
-    // "timeout" → TRANSIENT_ERROR.
+    // "timeout" → TRANSIENT_ERROR).
     try {
-      await page.goto("https://appointment.bmeia.gv.at/", { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.goto("https://appointment.bmeia.gv.at/", { waitUntil: "domcontentloaded", timeout: 15000 });
     } catch (gotoErr: any) {
-      throw new Error("portal-home goto (initial navigation, 30s): " + (gotoErr?.message || gotoErr));
+      throw new Error("portal-home goto (initial navigation, 15s): " + (gotoErr?.message || gotoErr));
     }
 
-    // Step 1: Office KAIRO
-    const officeSel = await page.waitForSelector('select#Office', { timeout: 15000 }).catch(() => null);
-    if (officeSel) {
-      await page.select('select#Office', 'KAIRO').catch(() => null);
-      await Promise.all([
-        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null),
-        clickSubmitControl(page),
-      ]);
+    // Fast-path direct scheduler navigation (OPT-1):
+    // The BMEIA WebForms portal accepts a direct POST to /HomeWeb/Scheduler with
+    // Office=KAIRO, CalendarId, PersonCount=1, and target Monday to land directly
+    // on the week grid, skipping steps 1 to 4 (saving ~8-12 seconds of sequential page loads).
+    const targetMonday = opts?.startTime || calculateMondayString();
+    let landedOnGrid = false;
+
+    try {
+      await submitSchedulerForm(page, { office: 'KAIRO', calendarId: String(CANONICAL_CALENDAR_ID), monday: targetMonday });
+
+      await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null);
+
+      const radios = await page.$$('input[type="radio"]').catch(() => []);
+      const content = await page.content().catch(() => "");
+      if (radios.length > 0 || content.includes("no appointments available")) {
+        landedOnGrid = true;
+      }
+    } catch {
+      landedOnGrid = false;
     }
 
-    // Step 2: CalendarId (enforce canonical Bachelor)
-    const calSel = await page.waitForSelector('select#CalendarId', { timeout: 15000 }).catch(() => null);
-    if (calSel) {
-      await page.select('select#CalendarId', String(CANONICAL_CALENDAR_ID)).catch(() => null);
-      await Promise.all([
-        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null),
-        clickSubmitControl(page),
-      ]);
-    }
-
-    // Step 3: PersonCount = 1
-    const pcSel = await page.waitForSelector('select#PersonCount', { timeout: 10000 }).catch(() => null);
-    if (pcSel) {
-      await page.select('select#PersonCount', '1').catch(() => null);
-      await Promise.all([
-        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null),
-        clickSubmitControl(page),
-      ]);
-    }
-
-    // Step 4: Info page — just Next
-    if (await hasNextControl(page)) {
-      const hasGrid = await page.$('input[type="radio"]').then(Boolean).catch(() => false);
-      if (!hasGrid) {
+    if (!landedOnGrid) {
+      // Step 1: Office KAIRO
+      const officeSel = await page.waitForSelector('select#Office', { timeout: 15000 }).catch(() => null);
+      if (officeSel) {
+        await page.select('select#Office', 'KAIRO').catch(() => null);
         await Promise.all([
           page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null),
-          clickNextControl(page),
+          clickSubmitControl(page),
         ]);
+      }
+
+      // Step 2: CalendarId (enforce canonical Bachelor)
+      const calSel = await page.waitForSelector('select#CalendarId', { timeout: 15000 }).catch(() => null);
+      if (calSel) {
+        await page.select('select#CalendarId', String(CANONICAL_CALENDAR_ID)).catch(() => null);
+        await Promise.all([
+          page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null),
+          clickSubmitControl(page),
+        ]);
+      }
+
+      // Step 3: PersonCount = 1
+      const pcSel = await page.waitForSelector('select#PersonCount', { timeout: 10000 }).catch(() => null);
+      if (pcSel) {
+        await page.select('select#PersonCount', '1').catch(() => null);
+        await Promise.all([
+          page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null),
+          clickSubmitControl(page),
+        ]);
+      }
+
+      // Step 4: Info page — just Next
+      if (await hasNextControl(page)) {
+        const hasGrid = await page.$('input[type="radio"]').then(Boolean).catch(() => false);
+        if (!hasGrid) {
+          await Promise.all([
+            page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null),
+            clickNextControl(page),
+          ]);
+        }
       }
     }
 
@@ -257,28 +320,7 @@ export async function executePlaywrightFallback(
 
       // If the target week is not already displayed, navigate to it via POST inside the page context
       if (!hasTargetWeekRadio) {
-        await page.evaluate((args: { office: string; calendarId: string; monday: string }) => {
-          // @ts-ignore — browser context evaluation provides DOM document
-          const doc = (globalThis as any).document;
-          const form = doc.createElement('form');
-          form.method = 'POST';
-          form.action = '/HomeWeb/Scheduler';
-          const add = (name: string, val: string) => {
-            const input = doc.createElement('input');
-            input.type = 'hidden';
-            input.name = name;
-            input.value = val;
-            form.appendChild(input);
-          };
-          add('Language', 'en');
-          add('Office', args.office);
-          add('CalendarId', args.calendarId);
-          add('PersonCount', '1');
-          add('Monday', args.monday);
-          add('Command', 'Next');
-          doc.body.appendChild(form);
-          form.submit();
-        }, { office: 'KAIRO', calendarId: String(CANONICAL_CALENDAR_ID), monday: opts.startTime });
+        await submitSchedulerForm(page, { office: 'KAIRO', calendarId: String(CANONICAL_CALENDAR_ID), monday: opts.startTime });
         await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null);
       }
     }
@@ -367,53 +409,72 @@ export async function executePlaywrightFallback(
 
     stageReached = "FORM_FILL";
 
-    // Step 6: Personal data — fill using REAL portal names (London evidence, 31 fields)
-    // helper to fill if element exists, ignore if not (puppeteer has no
-    // page.fill — set the value in page context and fire input/change so
-    // ASP.NET validators observe the edit)
-    const fill = async (sel: string, val: string) => {
-      const el = await page.$(sel).catch(() => null);
-      if (el && val) {
-        await page.evaluate((args: { sel: string; val: string }) => {
-          // @ts-ignore — browser context evaluation provides DOM document
-          const doc = (globalThis as any).document;
-          const target = doc.querySelector(args.sel) as any;
-          if (!target) return;
-          target.focus?.();
-          target.value = args.val;
-          target.dispatchEvent(new Event("input", { bubbles: true }));
-          target.dispatchEvent(new Event("change", { bubbles: true }));
-        }, { sel, val }).catch(() => null);
+    // Step 6: Personal data — batch filled in a single page.evaluate() call (OPT-3)
+    // Eliminates ~19 individual asynchronous CDP round-trips over the remote WebSocket.
+    await page.evaluate((formData: Record<string, string>) => {
+      // @ts-ignore — browser context evaluation provides DOM document
+      const doc = (globalThis as any).document;
+      const setVal = (sel: string, val: string) => {
+        if (!val) return;
+        const el = doc.querySelector(sel) as any;
+        if (!el) return;
+        el.focus?.();
+        el.value = val;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      };
+      const setSelect = (sel: string, val: string) => {
+        if (!val) return;
+        const el = doc.querySelector(sel) as any;
+        if (!el) return;
+        el.value = val;
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      };
+
+      setVal('input#Lastname, input[name="Lastname"]', formData.lastName);
+      setVal('input#Firstname, input[name="Firstname"]', formData.firstName);
+      setVal('input#DateOfBirth, input[name="DateOfBirth"]', formData.dob);
+      setVal('input#TraveldocumentNumber, input[name="TraveldocumentNumber"]', formData.passportNumber);
+      setSelect('select#Sex, select[name="Sex"]', formData.gender);
+      setVal('input#Street, input[name="Street"]', formData.street);
+      setVal('input#Postcode, input[name="Postcode"]', formData.postalCode);
+      setVal('input#City, input[name="City"]', formData.city);
+      setSelect('select#Country, select[name="Country"]', formData.countryOfBirth || "Egypt");
+      setVal('input#Telephone, input[name="Telephone"]', formData.phone);
+      setVal('input#Email, input[name="Email"]', formData.email);
+      setVal('input#LastnameAtBirth, input[name="LastnameAtBirth"]', formData.familyNameAtBirth);
+      setSelect('select#NationalityAtBirth, select[name="NationalityAtBirth"]', formData.nationalityAtBirth);
+      setSelect('select#CountryOfBirth, select[name="CountryOfBirth"]', formData.countryOfBirth);
+      setVal('input#PlaceOfBirth, input[name="PlaceOfBirth"]', formData.placeOfBirth);
+      setSelect('select#NationalityForApplication, select[name="NationalityForApplication"]', formData.nationality);
+      setVal('input#TraveldocumentDateOfIssue, input[name="TraveldocumentDateOfIssue"]', formData.passportIssueDate);
+      setVal('input#TraveldocumentValidUntil, input[name="TraveldocumentValidUntil"]', formData.passportExpiry);
+      setSelect('select#TraveldocumentIssuingAuthority, select[name="TraveldocumentIssuingAuthority"]', formData.passportIssuingCountry);
+
+      const consent = doc.querySelector('input#DSGVOAccepted, input[name="DSGVOAccepted"]') as any;
+      if (consent && !consent.checked) {
+        consent.click();
       }
-    };
-    const select = async (sel: string, val: string) => {
-      const el = await page.$(sel).catch(() => null);
-      if (el && val) await page.select(sel, val).catch(() => fill(sel, val).catch(() => null));
-    };
-
-    await fill('input#Lastname, input[name="Lastname"]', client.lastName);
-    await fill('input#Firstname, input[name="Firstname"]', client.firstName);
-    await fill('input#DateOfBirth, input[name="DateOfBirth"]', formatDateForPortal(client.dob));
-    await fill('input#TraveldocumentNumber, input[name="TraveldocumentNumber"]', client.passportNumber);
-    await select('select#Sex, select[name="Sex"]', client.gender);
-    await fill('input#Street, input[name="Street"]', client.street);
-    await fill('input#Postcode, input[name="Postcode"]', client.postalCode);
-    await fill('input#City, input[name="City"]', client.city);
-    await select('select#Country, select[name="Country"]', client.countryOfBirth || "Egypt");
-    await fill('input#Telephone, input[name="Telephone"]', client.phone);
-    await fill('input#Email, input[name="Email"]', client.email);
-    await fill('input#LastnameAtBirth, input[name="LastnameAtBirth"]', client.familyNameAtBirth);
-    await select('select#NationalityAtBirth, select[name="NationalityAtBirth"]', client.nationalityAtBirth);
-    await select('select#CountryOfBirth, select[name="CountryOfBirth"]', client.countryOfBirth);
-    await fill('input#PlaceOfBirth, input[name="PlaceOfBirth"]', client.placeOfBirth);
-    await select('select#NationalityForApplication, select[name="NationalityForApplication"]', client.nationality);
-    await fill('input#TraveldocumentDateOfIssue, input[name="TraveldocumentDateOfIssue"]', formatDateForPortal(client.passportIssueDate));
-    await fill('input#TraveldocumentValidUntil, input[name="TraveldocumentValidUntil"]', formatDateForPortal(client.passportExpiry));
-    await select('select#TraveldocumentIssuingAuthority, select[name="TraveldocumentIssuingAuthority"]', client.passportIssuingCountry);
-
-    // GDPR consent
-    const consent = await page.$('input#DSGVOAccepted, input[name="DSGVOAccepted"]');
-    if (consent) await consent.click().catch(() => null);
+    }, {
+      lastName: client.lastName,
+      firstName: client.firstName,
+      dob: formatDateForPortal(client.dob),
+      passportNumber: client.passportNumber,
+      gender: client.gender,
+      street: client.street,
+      postalCode: client.postalCode,
+      city: client.city,
+      countryOfBirth: client.countryOfBirth || "Egypt",
+      phone: client.phone,
+      email: client.email,
+      familyNameAtBirth: client.familyNameAtBirth,
+      nationalityAtBirth: client.nationalityAtBirth,
+      placeOfBirth: client.placeOfBirth,
+      nationality: client.nationality,
+      passportIssueDate: formatDateForPortal(client.passportIssueDate),
+      passportExpiry: formatDateForPortal(client.passportExpiry),
+      passportIssuingCountry: client.passportIssuingCountry
+    }).catch(() => null);
 
     // CAPTCHA: Captcha_CaptchaImage + CaptchaText (BDC_* hidden fields are auto-submitted)
     //  open-source local OCR (tesseract.js) — no API key, no polling, free per D3
@@ -483,7 +544,14 @@ export async function executePlaywrightFallback(
         }
       }
       if (code) {
-        await fill('input#CaptchaText, input[name="CaptchaText"]', code);
+        await setInputValue(page, 'input#CaptchaText, input[name="CaptchaText"]', code);
+        // Verify captcha value was actually set (setInputValue silently swallows element-not-found)
+        const filled = await page.evaluate(() => {
+          // @ts-ignore — browser context evaluation provides DOM document
+          const el = (globalThis as any).document.querySelector('input#CaptchaText, input[name="CaptchaText"]');
+          return el?.value || "";
+        }).catch(() => "");
+        if (!filled) console.warn("[CAPTCHA] CaptchaText field not found or value not set — captcha submission may fail");
       }
     }
 

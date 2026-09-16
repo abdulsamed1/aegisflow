@@ -1,0 +1,54 @@
+# AegisFlow - Cloudflare Workers Configuration Example
+# Copy this file to wrangler.toml and replace placeholder values with your Cloudflare resource IDs.
+
+name = "aegisflow"
+main = "src/index.ts"
+compatibility_date = "2025-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[placement]
+mode = "smart"
+
+[vars]
+ENVIRONMENT = "production"
+# Free tier cap: 50 subrequests/invocation -> 2 bursts * 8 weeks * 3 fetches ≈ 48 fetches.
+# Raise up to 12 on Workers Paid (allows up to 1,000 subrequests).
+SCAN_BURSTS = "2"
+PLAN_TIER = "free"
+ENABLE_PRE_LAUNCH_REVERIFY = "false"
+
+# Cloudflare D1 Database Binding
+# Create with: wrangler d1 create aegisflow-db
+[[d1_databases]]
+binding = "DB"
+database_name = "aegisflow-db"
+database_id = "YOUR_D1_DATABASE_ID"
+
+# Cloudflare Durable Objects Binding (Distributed Locking)
+[[durable_objects.bindings]]
+name = "JOB_LOCK"
+class_name = "JobLockDO"
+
+# SQLite-backed Durable Objects (required on Workers Free plan)
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["JobLockDO"]
+
+# Cloudflare KV Namespace Binding (Session & Cookie Storage)
+# Create with: wrangler kv:namespace create SESSION_KV
+[[kv_namespaces]]
+binding = "SESSION_KV"
+id = "YOUR_KV_NAMESPACE_ID"
+
+# Cloudflare Browser Rendering Binding (Puppeteer)
+# Enable in Cloudflare Dashboard: Workers & Pages -> Browser Rendering
+[browser]
+binding = "MYBROWSER"
+
+# Cloudflare Workers AI Binding (Whisper audio transcription & OCR)
+[ai]
+binding = "AI"
+
+# Cron Trigger (Runs every minute; Cairo timezone handling evaluated in-isolate)
+[triggers]
+crons = ["* * * * *"]
