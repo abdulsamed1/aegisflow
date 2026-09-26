@@ -7,13 +7,14 @@
 
 ## القناة الصوتية — الاكتشاف الحاسم (2026-08-22, موثق حي على KAIRO)
 
-BotDetect يعرض **تحدياً صوتياً** على نفس المعالج: `get=sound` بدل `get=image` → استجابة `audio/x-wav` ‏(PCM 16-bit mono 8kHz، ~4.9s، ~79KB) — حروف منطوقة منفصلة نظيفة. جُلِب بنجاح داخل سياق الصفحة (نفس كوكيز الجلسة) عبر `page.evaluate(fetch)`.
+BotDetect يعرض **تحدياً صوتياً** على نفس المعالج: `get=sound` بدل `get=image` → استجابة `audio/x-wav` ‏(PCM 16-bit mono 8kHz، ~4.9s، ~79KB) — حروف منطوقة منفصلة نظيفة. جُلِب بنجاح داخل سياق الصفحة (نفس كوكيز الجلسة) عبر `page.evaluate(fetch)` المزود بمؤقت `AbortController` (سقف 6 ثوانٍ) لمنع تعليق الجلسة عند بطء استجابة خادم السفارة.
 
 ## سلسلة الحل المعتمدة (`src/captcha.ts` + `src/browser-fallback.ts`)
 
-1. **الصوت أولاً** — `solveCaptchaAudio(wavBytes, ai)`: تشغيل متوازٍ (`Promise.allSettled`) لكل من `@cf/openai/whisper-tiny-en` و`@cf/openai/whisper-large-v3-turbo` عند وجود AI binding لإلغاء تأخير الاستدعاء المتسلسل؛ اختيار النتيجة الصالحة (4-5 خانات) من tiny أولاً ثم turbo؛ إضافة قياس زمني دقيق بالملي ثانية. التحليل عبر `parseAudioTranscription`: تنظيف فواصل + طي التكرارات المتتالية + سقف 6 خانات.
-2. **احتياط الصورة** — `solveCaptcha(screenshotBase64, ai)`: Workers AI `@cf/meta/llama-3.2-11b-vision-instruct` → REST → tesseract.js (PSM 7 + whitelist A-Z0-9).
-3. الفشل → `isCaptchaError` يرصد الرفض ويعيد المحاولة (شبكة أمان).
+1. **الصوت أولاً مع القطع السريع (OPT-7)** — `solveCaptchaAudio(wavBytes, ai)`: تشغيل متسلسل يبدأ بـ `@cf/openai/whisper-tiny-en` فائق السرعة (~300–600ms). عند إنتاج رمز صالح من 4–5 خانات، يتم **القطع فورًا وإرجاع الرمز** دون استدعاء الموديل الأكبر. في حال عدم الصلاحية أو الفشل، يتم التراجع تلقائيًا إلى `@cf/openai/whisper-large-v3-turbo`. التحليل عبر `parseAudioTranscription`: تنظيف فواصل + طي التكرارات المتتالية + سقف 6 خانات.
+2. **سقف مهلة الجلب الصوتي**: في حال فشل أو تجاوز جلب ملف الصوت 6 ثوانٍ، يسقط الطلب فورًا دون تعليق المتصفح ويتراجع إلى مسار الصورة.
+3. **احتياط الصورة** — `solveCaptcha(screenshotBase64, ai)`: التقاط لقطة شاشة لـ `img#Captcha_CaptchaImage` والحل عبر Workers AI `@cf/meta/llama-3.2-11b-vision-instruct` → REST → tesseract.js (PSM 7 + whitelist A-Z0-9).
+4. **الفشل** → `isCaptchaError` يرصد الرفض ويعيد المحاولة (شبكة أمان).
 
 ## جرد Workers AI الموثق (حسب حساب المشغل 2026-08-22)
 

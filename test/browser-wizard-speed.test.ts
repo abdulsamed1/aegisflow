@@ -72,6 +72,13 @@ test("browser wizard speed: fast-path direct POST lands directly on grid skippin
       }
       return false;
     },
+    setContent: async (html: string) => {
+      if (html.includes("Scheduler") && html.includes("KAIRO")) {
+        directPostSubmitted = true;
+      }
+      return null;
+    },
+    setCookie: async () => null,
     select: async () => [],
     waitForNavigation: async () => null,
     waitForFunction: async () => null,
@@ -143,6 +150,8 @@ test("browser wizard speed: falls back cleanly to steps 1-4 when fast-path POST 
       }
       return [];
     },
+    setContent: async () => null,
+    setCookie: async () => null,
     waitForNavigation: async () => null,
     waitForFunction: async () => null,
     content: async () => radiosReturned ? "<html><input type='radio' value='2026-09-16T10:00:00.000Z' /></html>" : "<html>no grid</html>",
@@ -161,5 +170,63 @@ test("browser wizard speed: falls back cleanly to steps 1-4 when fast-path POST 
   assert.strictEqual(calSelected, true, "Must select CalendarId on fallback");
   assert.strictEqual(personCountSelected, true, "Must select PersonCount on fallback");
   assert.strictEqual(res.submitted, true);
+});
+
+test("parseCookieHeader: guarantees AspxAutoDetectCookieSupport=1 and parses session cookie", async () => {
+  const { parseCookieHeader } = await import("../src/browser-fallback");
+
+  // Empty string
+  const c1 = parseCookieHeader("");
+  assert.strictEqual(c1.length, 1);
+  assert.strictEqual(c1[0].name, "AspxAutoDetectCookieSupport");
+  assert.strictEqual(c1[0].value, "1");
+
+  // Only session ID
+  const c2 = parseCookieHeader("ASP.NET_SessionId=test123xyz");
+  assert.strictEqual(c2.length, 2);
+  const sess = c2.find((c: any) => c.name === "ASP.NET_SessionId");
+  const aspx = c2.find((c: any) => c.name === "AspxAutoDetectCookieSupport");
+  assert.strictEqual(sess?.value, "test123xyz");
+  assert.strictEqual(aspx?.value, "1");
+
+  // Already contains AspxAutoDetectCookieSupport
+  const c3 = parseCookieHeader("AspxAutoDetectCookieSupport=1; ASP.NET_SessionId=sess999");
+  assert.strictEqual(c3.length, 2);
+});
+
+test("browser wizard: pre-seeds session cookie on page before navigation", async () => {
+  resetThrottleLaunchForTests();
+  const weekMonday = calculateMondayString(new Date("2026-09-16T10:00:00.000Z"));
+
+  let cookiesSet: any[] = [];
+  const page = {
+    setCookie: async (c: any) => { cookiesSet.push(c); },
+    setContent: async () => null,
+    goto: async () => null,
+    waitForSelector: async (sel: string) => (/Lastname/.test(sel) ? { click: async () => null } : null),
+    $: async (sel: string) => (/Lastname/.test(sel) ? { click: async () => null } : null),
+    $$: async (sel: string) => (/radio/.test(sel) ? [fakeRadio("2026-09-16T10:00:00.000Z")] : []),
+    evaluate: async () => false,
+    select: async () => [],
+    waitForNavigation: async () => null,
+    waitForFunction: async () => null,
+    content: async () => "<html><input type='radio' value='2026-09-16T10:00:00.000Z' /></html>",
+    screenshot: async () => null,
+  };
+
+  const fakeBrowser = { newPage: async () => page, close: async () => null };
+
+  await executePlaywrightFallback(
+    {},
+    BACHELOR_CLIENT,
+    {
+      startTime: weekMonday,
+      sessionCookie: "AspxAutoDetectCookieSupport=1; ASP.NET_SessionId=live_cairo_session",
+      launcher: async () => fakeBrowser,
+    } as any
+  );
+
+  assert.ok(cookiesSet.some((c) => c.name === "AspxAutoDetectCookieSupport" && c.value === "1"));
+  assert.ok(cookiesSet.some((c) => c.name === "ASP.NET_SessionId" && c.value === "live_cairo_session"));
 });
 

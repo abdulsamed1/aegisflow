@@ -65,10 +65,46 @@ export function classifyLaunchError(msg: string): FailureClassification {
   return "UNKNOWN";
 }
 
+export interface CookieParam {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+}
+
+/** Parses Cookie header string into Puppeteer CookieParam array, guaranteeing AspxAutoDetectCookieSupport=1 */
+export function parseCookieHeader(cookieStr: string, domain = "appointment.bmeia.gv.at"): CookieParam[] {
+  const cookies: CookieParam[] = [];
+  if (cookieStr) {
+    const parts = cookieStr.split(";").map((s) => s.trim()).filter(Boolean);
+    for (const part of parts) {
+      const eqIdx = part.indexOf("=");
+      if (eqIdx > 0) {
+        cookies.push({
+          name: part.slice(0, eqIdx).trim(),
+          value: part.slice(eqIdx + 1).trim(),
+          domain,
+          path: "/",
+        });
+      }
+    }
+  }
+  if (!cookies.some((c) => c.name.toLowerCase() === "aspxautodetectcookiesupport")) {
+    cookies.push({
+      name: "AspxAutoDetectCookieSupport",
+      value: "1",
+      domain,
+      path: "/",
+    });
+  }
+  return cookies;
+}
+
 export interface BrowserFallbackOptions {
   startTime?: string;
   captchaApiKey?: string;
   ai?: any;
+  sessionCookie?: string;
   //  injected launcher (tests): defaults to the @cloudflare/puppeteer path.
   launcher?: (binding: any) => Promise<any>;
 }
@@ -230,30 +266,48 @@ export async function executePlaywrightFallback(
     browser = await launchBrowser(browserBinding, opts?.launcher);
     const page = await browser.newPage();
 
-    // Step tag (prod 2026-09-13: bounded 15s initial navigation. Tag the step so the audit row says
-    // it. Original text stays verbatim so classifyLaunchError still sees
-    // "timeout" → TRANSIENT_ERROR).
-    try {
-      await page.goto("https://appointment.bmeia.gv.at/", { waitUntil: "domcontentloaded", timeout: 15000 });
-    } catch (gotoErr: any) {
-      throw new Error("portal-home goto (initial navigation, 15s): " + (gotoErr?.message || gotoErr));
+    // Pre-seed session cookies (AspxAutoDetectCookieSupport and ASP.NET_SessionId)
+    // Critical: Without AspxAutoDetectCookieSupport=1, ASP.NET intercepts requests with a 302
+    // redirect to ?AspxAutoDetectCookieSupport=1. Under peak Cairo slot release traffic, this 302
+    // round-trip stalls and causes 15s-30s navigation timeouts.
+    if (typeof page.setCookie === "function") {
+      const cookiesToSet = parseCookieHeader(opts?.sessionCookie || "");
+      for (const c of cookiesToSet) {
+        await page.setCookie(c).catch(() => null);
+      }
     }
 
     // Fast-path direct scheduler navigation (OPT-1):
-    // The BMEIA WebForms portal accepts a direct POST to /HomeWeb/Scheduler with
-    // Office=KAIRO, CalendarId, PersonCount=1, and target Monday to land directly
-    // on the week grid, skipping steps 1 to 4 (saving ~8-12 seconds of sequential page loads).
+    // Directly submit form POST to /HomeWeb/Scheduler with target week and canonical params.
+    // This bypasses the heavy root page (https://appointment.bmeia.gv.at/) and wizard steps 1-4,
+    // landing directly on the scheduler grid in ~1-2 seconds instead of waiting for slow home page loads.
     const targetMonday = opts?.startTime || calculateMondayString();
     let landedOnGrid = false;
 
-    try {
-      await submitSchedulerForm(page, { office: 'KAIRO', calendarId: String(CANONICAL_CALENDAR_ID), monday: targetMonday });
+    const fastPathHtml = `<!doctype html><html><body><form id="fastForm" method="POST" action="https://appointment.bmeia.gv.at/HomeWeb/Scheduler"><input type="hidden" name="Language" value="en" /><input type="hidden" name="Office" value="KAIRO" /><input type="hidden" name="CalendarId" value="${CANONICAL_CALENDAR_ID}" /><input type="hidden" name="PersonCount" value="1" /><input type="hidden" name="Monday" value="${targetMonday}" /><input type="hidden" name="Command" value="Next" /></form><script>document.getElementById('fastForm').submit();</script></body></html>`;
 
-      await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null);
+    try {
+      if (typeof page.setContent === "function") {
+        await Promise.all([
+          page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null),
+          page.setContent(fastPathHtml).catch(() => null)
+        ]);
+      } else {
+        await submitSchedulerForm(page, { office: 'KAIRO', calendarId: String(CANONICAL_CALENDAR_ID), monday: targetMonday });
+        await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null);
+      }
 
       const radios = await page.$$('input[type="radio"]').catch(() => []);
       const content = await page.content().catch(() => "");
-      if (radios.length > 0 || content.includes("no appointments available")) {
+      const currentUrl = typeof page.url === "function" ? page.url() : "";
+      if (
+        radios.length > 0 ||
+        currentUrl.includes("Scheduler") ||
+        content.includes("no appointments available") ||
+        content.includes("Please choose an appointment") ||
+        content.includes("message-error") ||
+        content.includes("Appointment selection")
+      ) {
         landedOnGrid = true;
       }
     } catch {
@@ -261,6 +315,13 @@ export async function executePlaywrightFallback(
     }
 
     if (!landedOnGrid) {
+      console.warn("[FAST-PATH] Direct scheduler POST did not land on grid, falling back to portal home wizard");
+      try {
+        await page.goto("https://appointment.bmeia.gv.at/?AspxAutoDetectCookieSupport=1", { waitUntil: "domcontentloaded", timeout: 25000 });
+      } catch (gotoErr: any) {
+        throw new Error("portal-home goto (initial navigation, 25s): " + (gotoErr?.message || gotoErr));
+      }
+
       // Step 1: Office KAIRO
       const officeSel = await page.waitForSelector('select#Office', { timeout: 15000 }).catch(() => null);
       if (officeSel) {
@@ -325,35 +386,85 @@ export async function executePlaywrightFallback(
       }
     }
 
-    // Select target slot: MUST provably match the requested target opportunity week
-    const radios = await page.$$('input[type="radio"]');
-    let targetRadio: any = null;
+    // Fast in-browser slot radio selection (OPT-2): inspects and clicks target slot in 1 CDP call
+    if (!selectedSlot && typeof page.evaluate === "function") {
+      const fastRadio = await page.evaluate((targetMonday: string | undefined) => {
+        // @ts-ignore
+        const doc = (globalThis as any).document;
+        if (!doc) return null;
+        const domRadios = Array.from(doc.querySelectorAll('input[type="radio"]')) as any[];
+        if (domRadios.length === 0) return null;
 
-    if (radios.length > 0) {
-      if (opts?.startTime) {
-        // Strict verification: only accept a radio whose value date belongs to the target week
-        for (const r of radios) {
-          const val = await getAttr(r, "value");
-          if (val) {
-            const slotDate = new Date(val);
-            if (!Number.isNaN(slotDate.getTime()) && calculateMondayString(slotDate) === opts.startTime) {
-              targetRadio = r;
-              selectedSlot = val;
-              stageReached = "SLOT_SELECTION";
-              break;
+        let picked: any = null;
+        let pickedVal: string = "";
+
+        if (targetMonday) {
+          for (const r of domRadios) {
+            const val = r.value || r.getAttribute("value") || "";
+            if (!val) continue;
+            const d = new Date(val);
+            if (!Number.isNaN(d.getTime())) {
+              const day = d.getDay();
+              const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+              const m = new Date(d);
+              m.setDate(diff);
+              const mStr = `${m.getMonth() + 1}/${m.getDate()}/${m.getFullYear()} 12:00:00 AM`;
+              if (mStr === targetMonday) {
+                picked = r;
+                pickedVal = val;
+                break;
+              }
             }
           }
+        } else {
+          picked = domRadios[0];
+          pickedVal = picked?.value || picked?.getAttribute("value") || "";
         }
-      } else {
-        // No specific week targeted (general dry-run / unit tests)
-        targetRadio = radios[0];
-        selectedSlot = await getAttr(targetRadio, "value") || undefined;
-        if (targetRadio) stageReached = "SLOT_SELECTION";
+
+        if (picked) {
+          picked.checked = true;
+          picked.click?.();
+          return { found: true, value: pickedVal };
+        }
+        return { found: false, count: domRadios.length };
+      }, opts?.startTime).catch(() => null);
+
+      if (fastRadio?.found) {
+        selectedSlot = fastRadio.value;
+        stageReached = "SLOT_SELECTION";
+      }
+    }
+
+    // Select target slot: MUST provably match the requested target opportunity week (fallback for test mocks)
+    let targetRadio: any = null;
+    if (!selectedSlot) {
+      const radios = await page.$$('input[type="radio"]').catch(() => []);
+      if (radios.length > 0) {
+        if (opts?.startTime) {
+          // Strict verification: only accept a radio whose value date belongs to the target week
+          for (const r of radios) {
+            const val = await getAttr(r, "value");
+            if (val) {
+              const slotDate = new Date(val);
+              if (!Number.isNaN(slotDate.getTime()) && calculateMondayString(slotDate) === opts.startTime) {
+                targetRadio = r;
+                selectedSlot = val;
+                stageReached = "SLOT_SELECTION";
+                break;
+              }
+            }
+          }
+        } else {
+          // No specific week targeted (general dry-run / unit tests)
+          targetRadio = radios[0];
+          selectedSlot = await getAttr(targetRadio, "value") || undefined;
+          if (targetRadio) stageReached = "SLOT_SELECTION";
+        }
       }
     }
 
     // Critical invariant: If a target week was requested but cannot be proven, NEVER select an arbitrary slot!
-    if (opts?.startTime && !targetRadio) {
+    if (opts?.startTime && !selectedSlot && !targetRadio) {
       const dur = (Date.now() - workStartTime) / 1000.0;
       const shot = await page.screenshot({ type: "jpeg", quality: 60 }).catch(() => null);
       return {
@@ -369,12 +480,12 @@ export async function executePlaywrightFallback(
 
     if (targetRadio) {
       await targetRadio.click().catch(() => null);
-      if (await hasNextControl(page)) {
-        await Promise.all([
-          page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null),
-          clickNextControl(page),
-        ]);
-      }
+    }
+    if ((selectedSlot || targetRadio) && (await hasNextControl(page))) {
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null),
+        clickNextControl(page),
+      ]);
     }
 
     // Wait for personal data form or verify slot status
@@ -422,6 +533,7 @@ export async function executePlaywrightFallback(
         el.value = val;
         el.dispatchEvent(new Event("input", { bubbles: true }));
         el.dispatchEvent(new Event("change", { bubbles: true }));
+        el.dispatchEvent(new Event("blur", { bubbles: true }));
       };
       const setSelect = (sel: string, val: string) => {
         if (!val) return;
@@ -496,17 +608,26 @@ export async function executePlaywrightFallback(
         if (imgSrc && /BotDetect/i.test(imgSrc)) {
           const soundUrl = imgSrc.replace(/get=\w+/, 'get=sound');
           const wavB64 = await page.evaluate(async (u: string) => {
-            // @ts-ignore — browser context fetch, credentials/HTMLImageElement not in workers lib
-            const r = await fetch(u, { credentials: 'include' });
-            const buf = await r.arrayBuffer();
-            let bin = '';
-            const bytes = new Uint8Array(buf);
-            for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-            return btoa(bin);
+            try {
+              // @ts-ignore — browser context fetch
+              const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+              const timeoutId = controller ? setTimeout(() => controller.abort(), 6000) : null;
+              // @ts-ignore
+              const r = await fetch(u, { credentials: 'include', signal: controller?.signal });
+              if (timeoutId) clearTimeout(timeoutId);
+              if (!r.ok) return null;
+              const buf = await r.arrayBuffer();
+              let bin = '';
+              const bytes = new Uint8Array(buf);
+              for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+              return btoa(bin);
+            } catch {
+              return null;
+            }
           }, soundUrl).catch(() => null);
           if (wavB64) {
-            const bytes = new Uint8Array(atob(wavB64).length);
             const bin2 = atob(wavB64);
+            const bytes = new Uint8Array(bin2.length);
             for (let i = 0; i < bin2.length; i++) bytes[i] = bin2.charCodeAt(i);
             code = await solveCaptchaAudio(bytes, opts?.ai).catch(() => null);
           }

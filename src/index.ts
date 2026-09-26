@@ -707,7 +707,8 @@ export default {
           bgTasks.push(env.DB.prepare(`INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details) VALUES (?, ?, 'UNKNOWN_RESPONSE', ?, ?)`).bind(job.id, job.client_id, unk?.durationMs || 0, JSON.stringify({ aggregatedTransportFailures: scanResults.length, weeks: mondays.length, burstsSkipped: bursts - b - 1, error: unk?.errorMessage })).run());
           break;
         }
-        if (b < bursts - 1) await new Promise(r => setTimeout(r, 30000));
+        const burstIntervalMs = Math.max(5000, Math.floor(60000 / bursts));
+        if (b < bursts - 1) await new Promise(r => setTimeout(r, burstIntervalMs));
       }
       if (noSlotAggregated) bgTasks.push(env.DB.prepare(`INSERT INTO audit_logs (job_id, client_id, event_type, duration_ms, details) VALUES (?, ?, 'NO_APPOINTMENT', 0, ?)`).bind(job.id, job.client_id, JSON.stringify({ aggregated: noSlotAggregated, bursts, weeks: mondays.length })).run());
       bgTasks.push(env.DB.prepare(`UPDATE jobs SET last_check = CURRENT_TIMESTAMP, check_count = check_count + ? WHERE id = ?`).bind(totalScanChecks, job.id).run());
@@ -884,6 +885,7 @@ export default {
         startTime: slotMonday,
         captchaApiKey: env.CAPTCHA_API_KEY,
         ai: env.AI,
+        sessionCookie,
       });
 
       let totalBrowserSeconds = pwRes.durationSeconds;
@@ -992,6 +994,7 @@ export default {
           startTime: slotMonday,
           captchaApiKey: env.CAPTCHA_API_KEY,
           ai: env.AI,
+          sessionCookie,
         });
         totalBrowserSeconds += pwRes2.durationSeconds;
         bgTasks.push(env.DB.prepare(

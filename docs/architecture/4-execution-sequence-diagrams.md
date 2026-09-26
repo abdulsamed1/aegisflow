@@ -28,7 +28,7 @@ sequenceDiagram
     Note over Sched,D1: All Database Telemetry and Logging is offloaded to the background via ctx.waitUntil() to ensure zero blocking latency.
 ```
 
-## 4.2 Booking Flow (Direct HTTP Mode & Playwright Fallback)
+## 4.2 Booking Flow (Puppeteer Fast-Path Wizard)
 
 ```mermaid
 sequenceDiagram
@@ -52,7 +52,17 @@ sequenceDiagram
         else Slot verified
             Sched->>TG: 🤖 Wizard launching (attempt N)
             Sched->>BW: launchBrowser() after 20s throttle gate
-            BW->>BMEIA: Wizard: Office→Calendar→Person→Info→Grid→Form→Captcha→Submit
+            BW->>BW: Pre-seed cookies (AspxAutoDetectCookieSupport=1 & session)
+            BW->>BMEIA: Fast-Path POST /HomeWeb/Scheduler (Direct to grid in 1.2s)
+            alt Fast-path lands on grid
+                BW->>BW: Atomic in-browser radio slot selection (1 CDP call)
+            else Fast-path POST missed grid (fallback)
+                BW->>BMEIA: Full wizard: Office→Calendar→Person→Info→Grid
+            end
+            BW->>BW: Batch DOM form fill (17 fields + blur dispatch)
+            BW->>BMEIA: Fetch BotDetect sound challenge (with 6s AbortController timeout)
+            BW->>Sched: Workers AI Whisper (tiny-en + large-v3-turbo)
+            BW->>BMEIA: Submit Form (input#nextButton)
             alt Reference GESX-... Received
                 BMEIA-->>Sched: 200 OK + Confirmation HTML
                 Sched->>TG: 🎉 BOOKED + reference
@@ -65,11 +75,11 @@ sequenceDiagram
         alt Both attempts failed (or no retry)
             Sched->>TG: ❌ FAILED + never-parked notice
             Sched->>DO: ReleaseLock(job_id)
-            Note over Sched,DO: Requeue ACTIVE with backoff_until = NULL (never-park 2026-09-11) — retries next tick
+            Note over Sched,DO: Requeue ACTIVE with backoff_until = NULL (never-park) — retries next tick
         end
     end
 ```
 
-> Single-engine architecture since 2026-09-11: direct HTTP submission is retired (FR-7) and the wizard launches exclusively via `@cloudflare/puppeteer` (`launchBrowser`), after Playwright's `fs.mkdtemp` crash made every launch fail. Billed browser seconds exclude the 20s throttle-gate wait (`workStartTime`). Operator applies manually in parallel off the Arabic slot alarm.
+> Single-engine architecture (revised 2026-09-24): direct HTTP submission is retired (FR-7) and the wizard launches exclusively via `@cloudflare/puppeteer` (`launchBrowser`). Browser sessions pre-seed `AspxAutoDetectCookieSupport=1` to eliminate ASP.NET 302 redirects, execute direct POST to `/HomeWeb/Scheduler` to reach the week grid in ~1.2s, select slot radios atomically via in-browser DOM evaluation, fill personal data in batch with `blur` events, and solve audio CAPTCHAs via Cloudflare Workers AI Whisper with timeout safeguards. Billed browser seconds exclude the 20s throttle-gate wait (`workStartTime`), keeping total browser time under 4–6s per attempt.
 
 ---

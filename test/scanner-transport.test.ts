@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { scanAvailability, isTransportOutage } from "../src/scanner";
+import { scanAvailability, isTransportOutage, getSessionCookie } from "../src/scanner";
 
 // Regression (prod 2026-09-01→11): ~5.8k UNKNOWN_RESPONSE rows in 14 days,
 // sampled 2026-09-11 — ALL are `{"responseLength":0,"error":"HTTP 520"}`.
@@ -82,4 +82,32 @@ test("isTransportOutage: SLOTS present or empty burst → false", () => {
     false
   );
   assert.strictEqual(isTransportOutage([]), false);
+});
+
+test("getSessionCookie: returns fallback AspxAutoDetectCookieSupport=1 on fetch failure without throwing", async () => {
+  const origFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => {
+      throw new Error("Connection refused (BMEIA down)");
+    }) as any;
+    const cookie = await getSessionCookie();
+    assert.strictEqual(cookie, "AspxAutoDetectCookieSupport=1");
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("getSessionCookie: extracts set-cookie and includes AspxAutoDetectCookieSupport", async () => {
+  const origFetch = globalThis.fetch;
+  try {
+    const headers = new Headers();
+    headers.set("set-cookie", "ASP.NET_SessionId=sess12345; path=/; HttpOnly");
+    globalThis.fetch = (async () =>
+      new Response("", { status: 302, headers })) as any;
+    const cookie = await getSessionCookie();
+    assert.ok(cookie.includes("AspxAutoDetectCookieSupport=1"));
+    assert.ok(cookie.includes("ASP.NET_SessionId=sess12345"));
+  } finally {
+    globalThis.fetch = origFetch;
+  }
 });

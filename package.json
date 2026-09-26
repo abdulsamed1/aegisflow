@@ -4,7 +4,7 @@
   "description": "High-concurrency consular appointment scheduling engine on Cloudflare Workers edge architecture",
   "main": "src/index.ts",
   "license": "MIT",
-  "author": "Abdul Samed",
+  "author": "Abdulsamed",
   "repository": {
     "type": "git",
     "url": "https://github.com/abdulsamed1/aegisflow.git"

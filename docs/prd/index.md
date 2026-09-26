@@ -17,7 +17,7 @@
     - [FR-4: Fair Scheduler Engine (Global Cairo Window)](./5-functional-requirements-fr.md#fr-4-fair-scheduler-engine-global-cairo-window)
     - [FR-5: Single POST Discovery Scanner](./5-functional-requirements-fr.md#fr-5-single-post-discovery-scanner)
     - [FR-6: Distributed Locking & Double-Booking Prevention](./5-functional-requirements-fr.md#fr-6-distributed-locking-double-booking-prevention)
-    - [FR-7: Booking Engine (Direct HTTP & Playwright Fallback)](./5-functional-requirements-fr.md#fr-7-booking-engine-direct-http-playwright-fallback)
+    - [FR-7: Booking Engine (Puppeteer Fast-Path Wizard — Direct HTTP Retired)](./5-functional-requirements-fr.md#fr-7-booking-engine-puppeteer-fast-path-wizard--direct-http-retired)
     - [FR-8: Audit Logging & Metrics](./5-functional-requirements-fr.md#fr-8-audit-logging-metrics)
     - [FR-9: Operator Telegram Alerts](./5-functional-requirements-fr.md#fr-9-operator-telegram-alerts)
     - [FR-10: Operator Admin Dashboard](./5-functional-requirements-fr.md#fr-10-operator-admin-dashboard)

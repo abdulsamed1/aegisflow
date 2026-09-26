@@ -13,6 +13,7 @@ flowchart TD
         D1[(Cloudflare D1: SQLite DB)]
         KV[(Cloudflare KV: Session Storage)]
         BrowserRun[Cloudflare Browser Run: puppeteer workers path]
+        WorkersAI[Cloudflare Workers AI: Whisper Speech-to-Text]
     end
 
     subgraph External Systems
@@ -26,7 +27,9 @@ flowchart TD
     Worker -->|Store / Restore Cookies| KV
     Worker -->|POST Scanner ~270ms avg| BMEIA
     Worker -->|Launch Browser (puppeteer)| BrowserRun
-    BrowserRun -->|Wizard: Form Fill & Submit| BMEIA
+    BrowserRun -->|Fast-Path POST Grid / Form Fill| BMEIA
+    BrowserRun -->|WAV Audio Challenge| WorkersAI
+    WorkersAI -->|Transcribed Code| BrowserRun
     Worker -->|Send Alert| TelegramAPI
 ```
 
