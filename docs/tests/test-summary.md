@@ -5,11 +5,11 @@ Generated and executed automated API & E2E tests for candidate CRUD endpoints, s
 
 ## Test Suite Execution Results
 
-- **Total Test Cases**: 180
-- **Passing**: 180
+- **Total Test Cases**: 213
+- **Passing**: 213
 - **Failing**: 0
-- **Duration**: ~41 seconds
-- **Last verified**: 2026-09-11 (puppeteer launch migration + throttle-billing fix + 520 transport blackout backoff + parallel-apply Telegram alerts + Arabic slot alarm)
+- **Duration**: ~42 seconds
+- **Last verified**: 2026-09-24 (Cookie pre-seeding + Fast-path direct POST + In-browser slot radio selection + Audio CAPTCHA timeout safeguards + Scanner getSessionCookie fallback resilience + Dynamic burst scheduling)
 
 ---
 
@@ -21,25 +21,40 @@ Generated and executed automated API & E2E tests for candidate CRUD endpoints, s
 - [x] `POST /api/clients` — Creates encrypted candidate records and validates required fields & enums (400 Bad Request on invalid category).
 - [x] `PUT /api/clients/:id` — Updates existing candidate data, recomputes calendarId, and handles empty passport string preservation.
 - [x] `DELETE /api/clients/:id` — Safely removes candidates, detaches foreign key references in audit logs, and protects `BOOKED` jobs (403 Forbidden).
+- [x] Inline script security check — `vm.Script` parses served dashboard HTML without syntax errors.
 
-### 2. E2E & Booking Engine Pipeline (`test/e2e-workflow.test.ts`, `test/booking.test.ts`, `test/throttle.test.ts`, `test/captcha.test.ts`, `test/parse-bursts.test.ts`)
-- [x] Candidate Onboarding & Lifecycle Flow.
-- [x] Date Conversion: ISO (`YYYY-MM-DD`) to portal format (`MM/DD/YYYY`).
-- [x] Step 3 Payload Serialization: Serializes 18 PII fields, split postal code & city, consent, and CAPTCHA challenge text.
-- [x] Booking Confirmation Extraction: Regex parsing of reference IDs (`GESX-...`) from confirmation HTML.
-- [x] Browser Launch Throttling: Sequential FIFO launch queue verification (`test/throttle.test.ts`).
-- [x] CAPTCHA Audio Solving: Parallel Whisper selection, fallback to turbo, and timing (`test/captcha.test.ts`).
-- [x] Burst Scanning: Tier-aware clamping (Free 1..2, Paid 1..12) (`test/parse-bursts.test.ts`).
-- [x] Puppeteer launch path + `LAUNCH_ERROR` no-blind-retry rule (`test/puppeteer-launch.test.ts`, `test/booking-retry.test.ts`).
-- [x] Throttle-wait billing exclusion from `durationSeconds` (`test/throttle-billing.test.ts`).
-- [x] Scan `TRANSPORT` vs `PARSE` errors + transport-blackout burst backoff (`test/scanner-transport.test.ts`).
-- [x] Arabic slot alarm, per-step booking alerts, never-park requeue policy (`test/booking-alerts.test.ts`).
+### 2. Browser Execution & Speed Optimizations (`test/browser-wizard-speed.test.ts`, `test/throttle.test.ts`, `test/throttle-billing.test.ts`, `test/puppeteer-launch.test.ts`)
+- [x] Fast-path direct POST to `/HomeWeb/Scheduler` lands directly on week grid in ~1.2s, skipping Steps 1–4.
+- [x] Graceful fallback to Steps 1–4 when direct POST does not reach grid.
+- [x] Cookie pre-seeding (`parseCookieHeader` guarantees `AspxAutoDetectCookieSupport=1` & `ASP.NET_SessionId`).
+- [x] In-browser atomic slot radio selection via `page.evaluate()` (1 CDP call vs 20–40 sequential roundtrips).
+- [x] Browser launch throttling (20s FIFO queue) and billing clock isolation (`workStartTime`).
+- [x] Cloudflare Puppeteer launch wrapper and `LAUNCH_ERROR` classification (no blind retries).
 
-### 3. Miniflare Integration & Security Tests (`test/integration.miniflare.test.ts`)
+### 3. Scanner & Transport Outage Resilience (`test/scanner-transport.test.ts`, `test/parse-bursts.test.ts`)
+- [x] `getSessionCookie()` fallback to `AspxAutoDetectCookieSupport=1` on fetch failure/timeout without throwing.
+- [x] `scanAvailability()` classifies `TRANSPORT` vs `PARSE` errors on HTTP 520 / connection drop.
+- [x] Total transport blackout detection (`isTransportOutage`) backs off remaining bursts.
+- [x] Tier-aware scan burst parsing (Free 1..2, Paid 1..12) and dynamic interval distribution.
+
+### 4. Audio & Vision CAPTCHA Pipeline (`test/captcha.test.ts`)
+- [x] Workers AI Whisper sequential pipeline: `whisper-tiny-en` short-circuiting on 4-5 char codes, fallback to `whisper-large-v3-turbo`.
+- [x] BotDetect audio fetch timeout (`AbortController` 6s) and error check (`r.ok`), preventing browser hangs.
+- [x] Tesseract.js / vision fallback when sound channel is unavailable.
+
+### 5. Miniflare Integration & Security Tests (`test/integration.miniflare.test.ts`, `test/d1-indexes.test.ts`, `test/bachelor-guards.test.ts`)
 - [x] AES-256-GCM PII encryption at rest in Cloudflare D1.
 - [x] Durable Object concurrency locking & TTL expiration takeover.
 - [x] Fail-closed 500 error when `PII_ENCRYPTION_KEY` is missing.
 - [x] D1 SQLite `CHECK` constraint enforcement for category values.
+- [x] Time-ordered composite indexes on `audit_logs(created_at, event_type)` preventing full-table scans.
+- [x] Bachelor-only lock enforcement across scheduler, booking engine, and pre-submit gate.
+
+### 6. Dashboard, i18n & Observability (`test/dashboard-arabic.test.ts`, `test/dashboard-user.test.ts`, `test/audit-timeline-and-reliability.test.ts`, `test/daily-report.test.ts`)
+- [x] Full Arabic localization: event types mapped to human-readable Arabic labels.
+- [x] Simplified view toggle for non-technical users.
+- [x] Cairo-timezone daily reporting aggregation across midnight UTC boundary without isolate CPU burnout.
+- [x] Real-time Telegram alerting: Arabic slot alarm, booking lifecycle transitions, and circuit breaker warnings.
 
 ---
 

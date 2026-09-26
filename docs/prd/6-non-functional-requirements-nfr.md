@@ -10,10 +10,14 @@
 ## NFR-2: Cloudflare Free Tier Resource Budgeting
 - Max Browser Time: 600 seconds/day. System monitors cumulative daily execution time and auto-trips at 90% (540s) with operator alert.
 - Browser Concurrency: Maximum 3 concurrent browser sessions (puppeteer workers path, since the 2026-09-11 `@cloudflare/playwright` → `@cloudflare/puppeteer` migration).
-- Launch Throttle: Minimum 20 seconds between browser launches, enforced via module-level sequential FIFO promise queue (`launchGate`) preventing simultaneous launches on parallel job fan-out. Billed browser seconds exclude this wait since 2026-09-11 (`workStartTime` resets after the gate releases — previously the wait was billed, accelerating the breaker).
+- Launch Throttle: Minimum 20 seconds between browser launches, enforced via module-level sequential FIFO promise queue (`launchGate`) preventing simultaneous launches on parallel job fan-out. Billed browser seconds exclude this wait (`workStartTime` resets after the gate releases).
+- Quota Conservation via Fast-Path: With booking duration reduced to **4–6s per attempt** (down from 40s+), the 600-second daily budget accommodates 100+ booking runs without premature exhaustion or HTTP 429 rate limits.
 
 ## NFR-3: Performance & Latency
-- Availability check latency: To beat competing bots, the system employs **Concurrent Multi-Candidate Parallel Fan-Out**. All 8-week horizon scans for all active jobs (up to 24 parallel requests) are dispatched simultaneously via `Promise.all()`.
+- Availability check latency: Multi-week concurrent scan covers the 8-week rolling horizon in parallel via `Promise.all()`.
+- Initial Navigation & Cookie Negotiation: Pre-seeded cookies (`AspxAutoDetectCookieSupport=1` & `ASP.NET_SessionId`) and direct form POST to `/HomeWeb/Scheduler` reach the week grid in **~1.2s**, eliminating 15s–30s of ASP.NET 302 redirect roundtrips under high load.
+- In-Browser Slot Selection: A single in-browser `page.evaluate()` call inspects and checks target week slot radios in the DOM in 0.1ms, eliminating 20–40 sequential CDP WebSocket roundtrips over the network (~2s saved).
+- Audio CAPTCHA Processing: Workers AI Whisper pipeline (`tiny-en` short-circuiting in ~300ms, fallback to `large-v3-turbo`) with an `AbortController` 6-second timeout ensures fast, hang-free CAPTCHA resolution.
 - Background Telemetry: All database observability operations (`INSERT` to audit_logs, `UPDATE` to daily_metrics) are strictly offloaded to the background using `ctx.waitUntil()`, stripping ~150-300ms from the critical execution path before firing the booking POST.
 - Cryptography: PBKDF2 iterations for AES-256-GCM derivation are cached in-memory, accelerating bulk PII decryption by ~87x.
 

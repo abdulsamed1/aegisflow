@@ -38,26 +38,35 @@ export async function getSessionCookie(kv?: KVNamespace): Promise<string> {
   }
 
   if (kv) {
-    const cached = await kv.get("bmeia_session_cookie");
+    const cached = await kv.get("bmeia_session_cookie").catch(() => null);
     if (cached) {
       inMemoryCookieCache = { value: cached, expiresAt: now + 600000 }; // 10 min memory cache
       return cached;
     }
   }
 
-  const warm = await fetch(PORTAL_BASE + "/", { method: "GET", redirect: "manual" });
-  const setCookie = warm.headers.get("set-cookie") || "";
-  const aspx = setCookie.match(/AspxAutoDetectCookieSupport=[^;,]+/i)?.[0] || "AspxAutoDetectCookieSupport=1";
-  const sessionId = setCookie.match(/ASP\.NET_SessionId=[^;,]+/i)?.[0];
-  const cookie = sessionId ? `${aspx}; ${sessionId}` : aspx;
+  try {
+    const warm = await fetch(PORTAL_BASE + "/", {
+      method: "GET",
+      redirect: "manual",
+      signal: AbortSignal.timeout(10000)
+    });
+    const setCookie = warm.headers.get("set-cookie") || "";
+    const aspx = setCookie.match(/AspxAutoDetectCookieSupport=[^;,]+/i)?.[0] || "AspxAutoDetectCookieSupport=1";
+    const sessionId = setCookie.match(/ASP\.NET_SessionId=[^;,]+/i)?.[0];
+    const cookie = sessionId ? `${aspx}; ${sessionId}` : aspx;
 
-  if (cookie) {
-    inMemoryCookieCache = { value: cookie, expiresAt: now + 600000 };
-    if (kv) {
-      await kv.put("bmeia_session_cookie", cookie, { expirationTtl: 1800 });
+    if (cookie) {
+      inMemoryCookieCache = { value: cookie, expiresAt: now + 600000 };
+      if (kv) {
+        await kv.put("bmeia_session_cookie", cookie, { expirationTtl: 1800 }).catch(() => null);
+      }
     }
+    return cookie;
+  } catch (err: any) {
+    console.warn("getSessionCookie warm fetch failed, using fallback cookie:", err?.message || err);
+    return "AspxAutoDetectCookieSupport=1";
   }
-  return cookie;
 }
 
 export async function scanAvailability(
@@ -77,7 +86,8 @@ export async function scanAvailability(
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
         "Cookie": cookie
       },
-      body: bodyString
+      body: bodyString,
+      signal: AbortSignal.timeout(10000)
     });
 
     const durationMs = Date.now() - startTime;
