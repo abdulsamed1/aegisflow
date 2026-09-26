@@ -1297,7 +1297,7 @@ test("Booking Engine Utility: buildStep3DetailsPayload includes all 18 PII field
     countryOfBirth: "EGYPT",
     nationalityAtBirth: "Egyptian",
     street: "123 Main St",
-    postalCode: "01111",
+    postalCode: "11511",
     city: "Cairo",
     passportIssueDate: "2018-06-15",
     passportIssuingCountry: "Egypt",
@@ -1323,7 +1323,7 @@ test("Booking Engine Utility: buildStep3DetailsPayload includes all 18 PII field
   assert.strictEqual(params.get("TraveldocumentNumber"), "A12345678");
   assert.strictEqual(params.get("Sex"), "Male");
   assert.strictEqual(params.get("Street"), "123 Main St");
-  assert.strictEqual(params.get("Postcode"), "01111");
+  assert.strictEqual(params.get("Postcode"), "11511");
   assert.strictEqual(params.get("City"), "Cairo");
   assert.strictEqual(params.get("Country"), "EGYPT");
   assert.strictEqual(params.get("Telephone"), "+201000000000");

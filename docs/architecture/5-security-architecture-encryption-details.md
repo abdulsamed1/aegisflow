@@ -9,7 +9,7 @@
 ## 5.2 Dual-Layer Authentication — Audited 2026-08-21, Hardened 2026-08-21 (src/index.ts:36-124)
 
 **Layer 1 — Cloudflare Access (Edge, outside Worker code):**
-- Protects the **whole Worker domain** (`aegisflow.example.workers.dev`, path `/*`) — verified live `302 -> cloudflareaccess.com` for both `GET /` and `GET /api/*`. Not referenced in `src/index.ts` (zero `CF-Access-*` hits).
+- Protects the **whole Worker domain** (`aegisflow.<your-subdomain>.workers.dev`, path `/*`) — verified live `302 -> cloudflareaccess.com` for both `GET /` and `GET /api/*`. Not referenced in `src/index.ts` (zero `CF-Access-*` hits).
 - Browser flow: `GET /` → `302` to `cloudflareaccess.com/login` → OTP → sets `CF_Authorization`/`CF_AppSession` (HttpOnly, edge-only) → request reaches Worker.
 - Cron `scheduled()` is **not** affected — it never passes through `fetch()` auth.
 
