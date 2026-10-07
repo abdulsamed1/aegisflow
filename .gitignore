@@ -45,3 +45,5 @@ Thumbs.db
 
 # Local workspace scratch directories
 scratch/
+# Added by code-review-graph
+.code-review-graph/
