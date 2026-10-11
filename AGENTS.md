@@ -48,7 +48,7 @@ below cost a production outage to learn.
   hiding the real cause. Use the `fetchJSON()` helper (throws
   `HTTP <status>: <server error>`).
 - Polling loops (10s tick) must use deduped toasts (see `toast(msg, kind, key)`),
-  or one persistent failure spams the operator forever.
+  or one recurring failure keeps spamming the operator.
 
 ## 5. Workers Free CPU budget: 10ms kills full-table scans
 
