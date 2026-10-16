@@ -14,6 +14,7 @@ node_modules/
 # Cloudflare Wrangler & Miniflare local runtime
 .wrangler/
 .mf/
+wrangler.toml
 
 # Build & Bundles
 dist/

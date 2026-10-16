@@ -245,7 +245,9 @@ wrangler kv:namespace create SESSION_KV
 wrangler d1 execute aegisflow-db --file=db/schema.sql
 ```
 
-Update your `wrangler.toml` (refer to `wrangler.toml.example`) with your assigned `database_id` and KV `id`.
+Copy `wrangler.toml.example` to the ignored local file `wrangler.toml`, then replace
+the placeholder D1 and KV IDs with resources from your own Cloudflare account.
+Never commit `wrangler.toml`; it contains account-specific resource identifiers.
 
 ---
 
