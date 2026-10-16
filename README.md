@@ -245,9 +245,16 @@ wrangler kv:namespace create SESSION_KV
 wrangler d1 execute aegisflow-db --file=db/schema.sql
 ```
 
-Copy `wrangler.toml.example` to the ignored local file `wrangler.toml`, then replace
-the placeholder D1 and KV IDs with resources from your own Cloudflare account.
 Never commit `wrangler.toml`; it contains account-specific resource identifiers.
+For local development, copy `wrangler.toml.example` to the ignored file
+`wrangler.toml` and replace the placeholder D1 and KV IDs with resources from
+your own Cloudflare account.
+
+Production deploys run through Workers Builds, which regenerates `wrangler.toml`
+at build time: the build step (`npm run build` → `scripts/generate-wrangler.mjs`)
+substitutes `D1_DATABASE_ID`, `D1_DATABASE_NAME`, and `KV_NAMESPACE_ID` from the
+Worker's build variables into `wrangler.toml.example`, and the deploy command
+(`npx wrangler deploy`) then deploys the result.
 
 ---
 

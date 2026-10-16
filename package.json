@@ -29,6 +29,7 @@
   ],
   "scripts": {
     "dev": "wrangler dev",
+    "build": "node scripts/generate-wrangler.mjs",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test test/*.test.ts",
