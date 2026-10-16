@@ -284,18 +284,9 @@ export async function executePlaywrightFallback(
     const targetMonday = opts?.startTime || calculateMondayString();
     let landedOnGrid = false;
 
-    const fastPathHtml = `<!doctype html><html><body><form id="fastForm" method="POST" action="https://appointment.bmeia.gv.at/HomeWeb/Scheduler"><input type="hidden" name="Language" value="en" /><input type="hidden" name="Office" value="KAIRO" /><input type="hidden" name="CalendarId" value="${CANONICAL_CALENDAR_ID}" /><input type="hidden" name="PersonCount" value="1" /><input type="hidden" name="Monday" value="${targetMonday}" /><input type="hidden" name="Command" value="Next" /></form><script>document.getElementById('fastForm').submit();</script></body></html>`;
-
     try {
-      if (typeof page.setContent === "function") {
-        await Promise.all([
-          page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null),
-          page.setContent(fastPathHtml).catch(() => null)
-        ]);
-      } else {
-        await submitSchedulerForm(page, { office: 'KAIRO', calendarId: String(CANONICAL_CALENDAR_ID), monday: targetMonday });
-        await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null);
-      }
+      await submitSchedulerForm(page, { office: 'KAIRO', calendarId: String(CANONICAL_CALENDAR_ID), monday: targetMonday });
+      await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null);
 
       const radios = await page.$$('input[type="radio"]').catch(() => []);
       const content = await page.content().catch(() => "");

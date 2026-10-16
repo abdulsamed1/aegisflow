@@ -30,6 +30,7 @@ Generated and executed automated API & E2E tests for candidate CRUD endpoints, s
 - [x] In-browser atomic slot radio selection via `page.evaluate()` (1 CDP call vs 20–40 sequential roundtrips).
 - [x] Browser launch throttling (20s FIFO queue) and billing clock isolation (`workStartTime`).
 - [x] Cloudflare Puppeteer launch wrapper and `LAUNCH_ERROR` classification (no blind retries).
+- [x] Detached-frame regression coverage: fast-path form submission preserves the page frame before wizard fallback.
 
 ### 3. Scanner & Transport Outage Resilience (`test/scanner-transport.test.ts`, `test/parse-bursts.test.ts`)
 - [x] `getSessionCookie()` fallback to `AspxAutoDetectCookieSupport=1` on fetch failure/timeout without throwing.

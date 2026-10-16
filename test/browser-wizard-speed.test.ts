@@ -100,6 +100,39 @@ test("browser wizard speed: fast-path direct POST lands directly on grid skippin
   assert.strictEqual(res.submitted, true);
 });
 
+test("browser wizard: fast-path does not reuse a detached frame after setContent navigation", async () => {
+  resetThrottleLaunchForTests();
+  const weekMonday = calculateMondayString(new Date("2026-09-16T10:00:00.000Z"));
+  let directPostSubmitted = false;
+
+  const page = {
+    setContent: async () => {
+      throw new Error("Attempted to use detached Frame 'fast-path'");
+    },
+    goto: async () => {
+      throw new Error("Attempted to use detached Frame 'fallback'");
+    },
+    evaluate: async (fn: any, args: any) => {
+      if (typeof fn === "function" && args?.office === "KAIRO") directPostSubmitted = true;
+      return null;
+    },
+    $$: async () => [fakeRadio("2026-09-16T10:00:00.000Z")],
+    content: async () => "<html><input type='radio' value='2026-09-16T10:00:00.000Z' /></html>",
+    setCookie: async () => null,
+    waitForNavigation: async () => null,
+    close: async () => null,
+  };
+
+  const res = await executePlaywrightFallback(
+    {},
+    BACHELOR_CLIENT,
+    { startTime: weekMonday, launcher: async () => ({ newPage: async () => page, close: async () => null }) } as any
+  );
+
+  assert.strictEqual(directPostSubmitted, true);
+  assert.notStrictEqual(res.errorMessage?.includes("detached Frame"), true);
+});
+
 test("browser wizard speed: falls back cleanly to steps 1-4 when fast-path POST does not reach grid", async () => {
   resetThrottleLaunchForTests();
   const weekMonday = calculateMondayString(new Date("2026-09-16T10:00:00.000Z"));
@@ -229,4 +262,3 @@ test("browser wizard: pre-seeds session cookie on page before navigation", async
   assert.ok(cookiesSet.some((c) => c.name === "AspxAutoDetectCookieSupport" && c.value === "1"));
   assert.ok(cookiesSet.some((c) => c.name === "ASP.NET_SessionId" && c.value === "live_cairo_session"));
 });
-
